@@ -35,7 +35,9 @@ class Medarot {
     // speed: メダロットのスピード (Speed of the Medarot)
     // medal: メダロットのメダル (Medal for the Medarot)
     // options: 追加オプション (Additional options, e.g., isLeader)
-    constructor(id, name, team, speed, medal, options) {
+    // partsConfig: パーツ構成 (e.g., { head: "P003", ... })
+    // partsData: CSVから読み込んだ全パーツデータ (All parts data loaded from CSV)
+    constructor(id, name, team, speed, medal, options, partsConfig, partsData) {
         this.id = id; // ID (ID)
         this.name = name; // 名前 (Name)
         this.team = team; // チーム (Team)
@@ -43,6 +45,8 @@ class Medarot {
         this.medal = medal; // メダル (Medal)
         this.isLeader = options.isLeader; // リーダーかどうか (Is it a leader?)
         this.color = options.color; // チームカラー (Team color)
+        this.partsConfig = partsConfig; // パーツ構成を保存 (Save parts configuration)
+        this.allPartsData = partsData; // 全パーツデータを保存 (Save all parts data)
         this.iconElement = null; // DOM上のアイコン要素 (Icon element on DOM)
         this.partDOMElements = {}; // パーツのDOM要素への参照 (References to part DOM elements) // 3. Cache DOM references
 
@@ -57,27 +61,57 @@ class Medarot {
     // メダロットの状態とパーツを初期化します (Initializes Medarot's state and parts)
     fullReset() {
         this.gauge = 0; // 現在のゲージ (Current gauge)
-        // 初期状態を 'idle_charging' に変更 (Change initial state to 'idle_charging')
-        // charging -> idle_charging (初期チャージ)
-        // selected_charging -> action_charging (アクション選択後のチャージ)
-        // cooldown_complete は ready_select に統合、または action_cooldown 完了時に ready_select に遷移
-        // 'charging' (startCooldown後) -> 'action_cooldown'
-        this.state = 'idle_charging'; // 現在の状態 (Current state): idle_charging, action_charging, action_cooldown, ready_select, ready_execute, broken
+        this.state = 'idle_charging'; // 現在の状態 (Current state)
         this.selectedActionType = null; // 選択されたアクションタイプ (Selected action type)
         this.selectedPartKey = null; // 選択されたパーツキー (Selected part key)
         this.preparedAttack = null; // 準備された攻撃情報 (Prepared attack information)
         this.currentActionCharge = null; // アクションチャージ値をリセット (Reset action charge value)
         this.currentActionCooldown = null; // アクションクールダウン値をリセット (Reset action cooldown value)
 
-        const hp = CONFIG.PART_HP_BASE;
-        const legsHp = hp + CONFIG.LEGS_HP_BONUS;
-        // 各パーツの定義 (Definition of each part) - charge/cooldown値を調整
-        this.parts = {
-            head: { name: 'Head', hp, maxHp: hp, action: 'Scan', isBroken: false, charge: 60, cooldown: 80 }, // 頭部パーツ (Head part)
-            rightArm: { name: 'Right Arm', hp, maxHp: hp, action: 'Shoot', isBroken: false, charge: 75, cooldown: 100 }, // 右腕パーツ (Right arm part)
-            leftArm: { name: 'Left Arm', hp, maxHp: hp, action: 'Fight', isBroken: false, charge: 75, cooldown: 100 }, // 左腕パーツ (Left arm part)
-            legs: { name: 'Legs', hp: legsHp, maxHp: legsHp, action: 'Move', isBroken: false } // 脚部パーツ (Legs part) - チャージ/クールダウンなし (No charge/cooldown)
+        this.parts = {}; // Initialize as empty object
+
+        const defaultPartStructure = {
+            id: 'N/A',
+            name_jp: '未装備', // "Unequipped"
+            category_jp: 'なし', // "None"
+            sub_category_jp: 'なし', // "None"
+            slot: '',
+            hp: 1, maxHp: 1,
+            charge: 0, cooldown: 0,
+            isBroken: true // Effectively unusable
         };
+
+        const slots = ['head', 'rightArm', 'leftArm', 'legs'];
+        slots.forEach(slotKey => {
+            const partId = this.partsConfig ? this.partsConfig[slotKey] : null; // Check if partsConfig exists
+            if (partId && this.allPartsData) { // Check if allPartsData exists
+                const partData = this.allPartsData.find(p => p.id === partId);
+                if (partData) {
+                    this.parts[slotKey] = {
+                        id: partData.id,
+                        name_jp: partData.name_jp,
+                        category_jp: partData.category_jp,
+                        sub_category_jp: partData.sub_category_jp,
+                        slot: slotKey, // or partData.slot, ensure consistency
+                        hp: parseInt(partData.base_hp) || CONFIG.PART_HP_BASE,
+                        maxHp: parseInt(partData.base_hp) || CONFIG.PART_HP_BASE,
+                        charge: parseInt(partData.charge) || 0,
+                        cooldown: parseInt(partData.cooldown) || 0,
+                        isBroken: false
+                    };
+                    if (slotKey === 'legs') {
+                        this.parts[slotKey].hp += CONFIG.LEGS_HP_BONUS;
+                        this.parts[slotKey].maxHp += CONFIG.LEGS_HP_BONUS;
+                    }
+                } else {
+                    console.warn(`Part ID ${partId} for slot ${slotKey} not found in partsData. Equipping default.`);
+                    this.parts[slotKey] = { ...defaultPartStructure, name_jp: `未定義 (${partId})`, slot: slotKey };
+                }
+            } else {
+                console.warn(`No part configured for slot ${slotKey} or missing partsData. Equipping default.`);
+                this.parts[slotKey] = { ...defaultPartStructure, slot: slotKey };
+            }
+        });
     }
 
     // アクション後のクールダウン開始 (Start Cooldown after action execution)
@@ -96,7 +130,8 @@ class Medarot {
     // 選択されたパーツでアクションを準備し、アクションチャージング状態に移行します (Prepares action with the selected part and transitions to action charging state)
     selectAction(partKey) {
         this.selectedPartKey = partKey; // 選択パーツキーを保存 (Save selected part key)
-        this.selectedActionType = this.parts[partKey].action; // アクションタイプを設定 (Set action type)
+        // .action no longer exists, using sub_category_jp for now
+        this.selectedActionType = this.parts[partKey].sub_category_jp;
 
         // 選択されたパーツのチャージ・クールダウン値を保存 (Store charge/cooldown values of the selected part)
         this.currentActionCharge = this.parts[partKey].charge;
@@ -215,8 +250,10 @@ class Medarot {
         // 3. DOM参照をキャッシュ (Cache DOM references)
         Object.entries(this.parts).forEach(([key, part]) => {
             const partEl = info.querySelector(`#${this.id}-${key}-part`);
+            // Use name_jp for display, ensure part and name_jp exist
+            const displayName = part && part.name_jp ? part.name_jp.substring(0,1) : '?';
             partEl.innerHTML = `
-                <span class="part-name">${part.name.substring(0,1)}</span>
+                <span class="part-name">${displayName}</span>
                 <div class="part-hp-bar-container"><div class="part-hp-bar"></div></div>
             `;
             // 各パーツのDOM要素を保存 (Save DOM elements for each part)
@@ -313,6 +350,7 @@ class Medarot {
 class GameManager {
     // コンストラクタ (Constructor)
     constructor() {
+        this.partsData = []; // CSVからロードされるパーツデータ (Parts data loaded from CSV)
         this.medarots = []; // 全メダロットのリスト (List of all Medarots) (formerly this.players)
         this.simulationInterval = null; // シミュレーションのインターバルID (Interval ID for simulation)
         this.activeMedarot = null; // 現在アクティブなメダロット (Currently active Medarot) (formerly this.activePlayer)
@@ -337,27 +375,79 @@ class GameManager {
 
     // 初期化 (Initialization)
     // ゲームの初期設定（メダロット作成、UI設定、イベント紐付け）を行います (Performs initial game setup (Medarot creation, UI setup, event binding))
-    init() { this.createMedarots(); this.setupUI(); this.bindEvents(); } // createPlayers を createMedarots に変更 (Changed createPlayers to createMedarots)
+    async init() { // Make init asynchronous
+        await this.loadPartsCSV(); // Load parts data first
+        this.createMedarots();
+        this.setupUI();
+        this.bindEvents();
+    } // createPlayers を createMedarots に変更 (Changed createPlayers to createMedarots)
+
+    // CSVからパーツデータをロードするメソッド (Method to load parts data from CSV)
+    async loadPartsCSV() {
+        try {
+            const response = await fetch('parts.csv');
+            if (!response.ok) {
+                console.error('Failed to load parts.csv:', response.statusText);
+                this.partsData = [];
+                return;
+            }
+            const csvText = await response.text();
+            const lines = csvText.trim().split('\n');
+            if (lines.length < 2) {
+                console.error('parts.csv is empty or has no data rows.');
+                this.partsData = [];
+                return;
+            }
+            const headers = lines[0].split(',').map(h => h.trim());
+            this.partsData = lines.slice(1).map(line => {
+                const values = line.split(',');
+                const part = {};
+                headers.forEach((header, index) => {
+                    part[header] = values[index] ? values[index].trim() : '';
+                });
+                return part;
+            }).filter(part => part.id); // Ensure part has an ID
+        } catch (error) {
+            console.error('Error loading or parsing parts.csv:', error);
+            this.partsData = [];
+        }
+    }
 
     // メダロット作成 (Create Medarots)
     // 設定に基づいてメダロットのインスタンスを生成します (Generates Medarot instances based on configuration)
     createMedarots() { // Renamed from createPlayers
         this.medarots = []; // メダロットリストを初期化 (Initialize Medarot list)
+
+        const defaultLoadouts = [
+            // Team 1 Loadouts
+            { head: "P003", rightArm: "P001", leftArm: "P004", legs: "P026" }, // Leader
+            { head: "P008", rightArm: "P002", leftArm: "P005", legs: "P026" }, // Member 1
+            { head: "P016", rightArm: "P017", leftArm: "P018", legs: "P026" }, // Member 2
+            // Team 2 Loadouts
+            { head: "P007", rightArm: "P006", leftArm: "P009", legs: "P026" }, // Leader
+            { head: "P011", rightArm: "P012", leftArm: "P014", legs: "P026" }, // Member 1
+            { head: "P013", rightArm: "P020", leftArm: "P022", legs: "P026" }  // Member 2
+        ];
+
         Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig], teamIndex) => {
             for (let i = 0; i < CONFIG.PLAYERS_PER_TEAM; i++) {
                 const id = teamIndex * CONFIG.PLAYERS_PER_TEAM + i + 1;
-                // 新しいメダルインスタンスを作成 (Create a new Medal instance)
-                // 例：とりあえず全メダロットにカブトメダルを割り当てる (Example: Assign Kabuto medal to all Medarots for now)
                 const defaultMedal = new Medal(
-                    (i % 2 === 0) ? "Kabuto" : "Kuwagata", //交互にメダルを設定
+                    (i % 2 === 0) ? "Kabuto" : "Kuwagata",
                     "Speed", "Berserk", (i % 2 === 0) ? "Fire" : "Thunder",
                     { shoot: 10, fight: 5, scan: 0, support: 0 }
                 );
-                this.medarots.push(new Medarot( // Player を Medarot に変更 (Changed Player to Medarot)
+
+                const loadoutIndex = teamIndex * CONFIG.PLAYERS_PER_TEAM + i;
+                const medarotPartsConfig = defaultLoadouts[loadoutIndex % defaultLoadouts.length];
+
+                this.medarots.push(new Medarot(
                     `p${id}`, `Medarot ${id}`, teamId,
                     teamConfig.baseSpeed + (Math.random() * 0.2),
-                    defaultMedal, // メダル情報をコンストラクタに渡す (Pass medal info to constructor)
-                    { isLeader: i === 0, color: teamConfig.color }
+                    defaultMedal,
+                    { isLeader: i === 0, color: teamConfig.color },
+                    medarotPartsConfig, // Pass the selected parts configuration
+                    this.partsData      // Pass the loaded CSV data
                 ));
             }
         });
@@ -400,8 +490,9 @@ class GameManager {
         this.phase = 'INITIAL_SELECTION'; // 初期選択フェーズへ (To initial selection phase)
         // 全メダロットを準備完了状態にし、表示を更新 (Set all Medarots to ready state and update display)
         this.medarots.forEach(m => { m.gauge = CONFIG.MAX_GAUGE; m.state = 'ready_select'; m.updateDisplay(); }); // player を m に変更
-        this.dom.startButton.disabled = true; this.dom.startButton.textContent = "Simulation in progress...";
+        this.dom.startButton.disabled = true; this.dom.startButton.textContent = "シミュレーション実行中...";
         this.dom.resetButton.style.display = "inline-block";
+        // resetButton text is already set in test.html to "リセット"
         this.resumeSimulation(); // シミュレーション再開 (Resume simulation)
     }
 
@@ -421,7 +512,7 @@ class GameManager {
         this.hideModal(); // モーダルを隠す (Hide modal)
         this.medarots.forEach(m => m.fullReset()); // 全メダロットをリセット (Reset all Medarots) player を m に変更
         this.setupUI(); // UIを再セットアップ (Re-setup UI)
-        this.dom.startButton.disabled = false; this.dom.startButton.textContent = "Start Simulation";
+        this.dom.startButton.disabled = false; this.dom.startButton.textContent = "シミュレーション開始";
         this.dom.resetButton.style.display = "none";
     }
 
@@ -627,38 +718,52 @@ class GameManager {
         // モーダルの種類に応じて内容と表示を切り替える (Switch content and display according to modal type)
         switch (type) {
             case 'selection': // アクション選択モーダル (Action selection modal)
-                title.textContent = 'Select Action'; // タイトル設定 (Set title)
-                actorName.textContent = `${medarot.name}'s turn.`; // 行動メダロット名表示 (Display acting Medarot's name)
+                title.textContent = '行動選択'; // タイトル設定 (Set title)
+                actorName.textContent = `${medarot.name}のターン。`; // 行動メダロット名表示 (Display acting Medarot's name)
                 partContainer.innerHTML = ''; // パーツボタンコンテナをクリア (Clear parts button container)
                 // 利用可能な攻撃パーツのボタンを動的に生成 (Dynamically generate buttons for available attack parts)
                 medarot.getAvailableAttackParts().forEach(partKey => {
                     const part = medarot.parts[partKey];
                     const button = document.createElement('button');
                     button.className = 'part-action-button'; // CSSクラス設定 (Set CSS class)
-                    button.textContent = `${part.name} (${part.action})`; // ボタンテキスト設定 (Set button text) e.g., "Head (Scan)"
+                    // Display part.name_jp and part.sub_category_jp (formerly action)
+                    button.textContent = `${part.name_jp} (${part.sub_category_jp})`;
                     button.onclick = () => this.handlePartSelection(partKey); // クリック時のイベントハンドラ設定 (Set click event handler)
                     partContainer.appendChild(button); // コンテナにボタン追加 (Add button to container)
                 });
                 partContainer.style.display = 'flex'; // パーツ選択コンテナ表示 (Show part selection container)
                 break;
             case 'execution': // 攻撃実行モーダル (Attack execution modal)
-                const { target, partKey, damage } = medarot.preparedAttack; // 準備された攻撃情報を展開 (Destructure prepared attack info)
-                title.textContent = 'Execute Attack!'; // タイトル設定 (Set title)
-                actorName.textContent = `${medarot.name}'s ${medarot.selectedActionType}! Dealt ${damage} damage to ${target.name}'s ${target.parts[partKey].name}!`;
-                // 結果メッセージ表示 (Display result message) e.g., "Medarot 1's Shoot! Dealt 20 damage to Medarot 2's Head!"
+                title.textContent = '攻撃実行！'; // タイトル設定 (Set title)
+                const attackerPart = medarot.parts[medarot.selectedPartKey];
+
+                if (!attackerPart) {
+                    console.error("Attacker's selected part not found!", medarot);
+                    actorName.innerHTML = `${medarot.name}の攻撃！詳細は不明です。<br>「この行動は未実装です。」`;
+                } else {
+                    const partCategory = attackerPart.category_jp || '不明カテゴリ';
+                    const partSubCategory = attackerPart.sub_category_jp || '不明サブカテゴリ';
+                    const partName = attackerPart.name_jp || '不明パーツ';
+
+                    const { target, partKey: targetPartKey, damage } = medarot.preparedAttack;
+                    const targetPartName = target.parts && target.parts[targetPartKey] ? target.parts[targetPartKey].name_jp : '不明部位';
+
+                    actorName.innerHTML = `「${medarot.name}の${partCategory}！ ${partSubCategory}行動${partName}！」<br>「この行動は未実装です。」<br><small>（${target.name}の${targetPartName}に ${damage} ダメージ！）</small>`;
+                }
+
                 confirmBtn.style.display = 'inline-block'; // 確認ボタン表示 (Show confirm button)
-                confirmBtn.textContent = 'OK'; // ボタンテキスト設定 (Set button text)
+                confirmBtn.textContent = '了解'; // ボタンテキスト設定 (Set button text)
                 break;
             case 'battle_start_confirm': // 戦闘開始確認モーダル (Battle start confirm modal)
-                title.textContent = 'Battle Start!'; // タイトル設定 (Set title)
+                title.textContent = '戦闘開始！'; // タイトル設定 (Set title)
                 actorName.textContent = ''; // 行動主体名はなし (No actor name for this modal)
                 startBtn.style.display = 'inline-block'; // 戦闘開始ボタン表示 (Show battle start button)
                 break;
             case 'game_over': // ゲームオーバーモーダル (Game over modal)
-                title.textContent = `${CONFIG.TEAMS[data.winningTeam].name} Wins!`; // 勝者チーム表示 (Display winning team)
-                actorName.textContent = 'Robattle Over!'; // 「ロボトル終了！」メッセージ (Robattle Over! message)
+                title.textContent = `${CONFIG.TEAMS[data.winningTeam].name} の勝利！`; // 勝者チーム表示 (Display winning team)
+                actorName.textContent = 'ロボトル終了！'; // 「ロボトル終了！」メッセージ (Robattle Over! message)
                 confirmBtn.style.display = 'inline-block'; // 確認ボタン表示 (Show confirm button)
-                confirmBtn.textContent = 'Reset'; // ボタンテキストを「リセット」に (Set button text to "Reset")
+                confirmBtn.textContent = 'リセット'; // ボタンテキストを「リセット」に (Set button text to "Reset")
                 modal.classList.add('game-over-modal'); // ゲームオーバー専用の追加スタイルを適用 (Apply additional style for game over)
                 break;
         }
@@ -673,7 +778,7 @@ class GameManager {
 // DOMContentLoadedイベントリスナー (DOMContentLoaded event listener)
 // HTMLの読み込みと解析が完了した時点で、GameManagerインスタンスを作成し、ゲームを初期化します。
 // (When HTML loading and parsing is complete, create a GameManager instance and initialize the game.)
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => { // Make it async
     const game = new GameManager(); // ゲームマネージャーのインスタンスを作成 (Create an instance of the game manager)
-    game.init(); // ゲームを初期化 (Initialize the game)
+    await game.init(); // Await initialization
 });
