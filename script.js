@@ -74,6 +74,13 @@ class Medarot {
         this.currentActionCharge = null; // アクションチャージ値をリセット (Reset action charge value)
         this.currentActionCooldown = null; // アクションクールダウン値をリセット (Reset action cooldown value)
 
+        // Initialize leg-specific stats
+        this.legMovementType = null;
+        this.legAccuracy = 0;
+        this.legMobility = 0;
+        this.legPropulsion = 0;
+        this.legDefenseParam = 0;
+
         this.parts = {}; // Initialize as empty object
 
         const defaultPartStructure = {
@@ -112,6 +119,12 @@ class Medarot {
                     if (slotKey === 'legs') {
                         this.parts[slotKey].hp += CONFIG.LEGS_HP_BONUS;
                         this.parts[slotKey].maxHp += CONFIG.LEGS_HP_BONUS;
+                        // Populate Medarot's leg-specific properties
+                        this.legMovementType = partData.movement_type_jp;
+                        this.legAccuracy = parseInt(partData.accuracy) || 0;
+                        this.legMobility = parseInt(partData.mobility) || 0;
+                        this.legPropulsion = parseInt(partData.propulsion) || 0;
+                        this.legDefenseParam = parseInt(partData.defense_param) || 0;
                     }
                 } else {
                     console.warn(`Part ID ${partId} for slot ${slotKey} not found in partsData. Equipping default.`);
@@ -176,7 +189,14 @@ class Medarot {
     applyDamage(damage, partKey) {
         const part = this.parts[partKey];
         if (!part) return false; // パーツが存在しない場合は何もしない (If part doesn't exist, do nothing)
-        part.hp = Math.max(0, part.hp - damage); // HPを減らす (Reduce HP)
+
+        let effectiveDamage = damage;
+        if (this.legDefenseParam && this.legDefenseParam > 0) {
+            effectiveDamage = Math.max(1, damage - (this.legDefenseParam || 0));
+            // console.log(`Damage reduced by leg defense. Original: ${damage}, Effective: ${effectiveDamage}`);
+        }
+        part.hp = Math.max(0, part.hp - effectiveDamage); // HPを減らす (Reduce HP)
+
         if (part.hp === 0) {
             part.isBroken = true; // HPが0なら破壊状態に (If HP is 0, set to broken state)
             if (partKey === 'head') {
@@ -198,7 +218,9 @@ class Medarot {
         const statesToPause = ['ready_select', 'ready_execute', 'broken'];
         if (statesToPause.includes(this.state)) return; // これらの状態ならゲージ更新しない (If in these states, don't update gauge)
 
-        this.gauge += this.speed; // スピードに応じてゲージ増加 (Increase gauge according to speed)
+        const baseChargeRate = this.speed;
+        const propulsionBonus = (this.legPropulsion || 0) * 0.05; // Factor can be tuned later
+        this.gauge += baseChargeRate + propulsionBonus; // スピードと推進力に応じてゲージ増加
 
         // 状態ごとのゲージ上限と遷移ロジック (Gauge limits and transition logic for each state)
         if (this.state === 'idle_charging') { // 初期チャージ中 (During initial charge)
