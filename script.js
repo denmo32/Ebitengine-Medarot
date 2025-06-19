@@ -270,29 +270,54 @@ class Medarot {
         const info = document.createElement('div');
         info.className = 'player-info'; // CSSクラス (CSS class)
         const teamConfig = CONFIG.TEAMS[this.team];
+
+        const partSlotNamesJP = {
+            head: '頭部',
+            rightArm: '右腕',
+            leftArm: '左腕',
+            legs: '脚部'
+        };
+
         let partsHTML = '';
-        // 各パーツのHP表示エリアを作成 (Create HP display area for each part)
         Object.keys(this.parts).forEach(key => {
-            partsHTML += `<div id="${this.id}-${key}-part" class="part-hp"></div>`;
+            // Add a unique ID for each part's wrapper and elements
+            partsHTML += `
+                <div class="part-info-wrapper" id="${this.id}-${key}-wrapper">
+                    <div class="part-name-display" id="${this.id}-${key}-name"></div>
+                    <div class="part-hp-section">
+                        <div class="part-hp-bar-container" id="${this.id}-${key}-bar-container">
+                            <div class="part-hp-bar" id="${this.id}-${key}-bar"></div>
+                        </div>
+                        <span class="part-hp-numeric" id="${this.id}-${key}-hp-numeric"></span>
+                    </div>
+                </div>
+            `;
         });
+
         info.innerHTML = `
             <div class="player-name ${teamConfig.textColor}">${this.name} ${this.isLeader ? '(L)' : ''}</div>
             <div class="parts-container">${partsHTML}</div>
         `;
-        // 3. DOM参照をキャッシュ (Cache DOM references)
+
+        // Cache DOM elements and set static content
         Object.entries(this.parts).forEach(([key, part]) => {
-            const partEl = info.querySelector(`#${this.id}-${key}-part`);
-            // Use name_jp for display, ensure part and name_jp exist
-            const displayName = part && part.name_jp ? part.name_jp.substring(0,1) : '?';
-            partEl.innerHTML = `
-                <span class="part-name">${displayName}</span>
-                <div class="part-hp-bar-container"><div class="part-hp-bar"></div></div>
-            `;
-            // 各パーツのDOM要素を保存 (Save DOM elements for each part)
+            const wrapperElement = info.querySelector(`#${this.id}-${key}-wrapper`);
+            const nameDisplayElement = info.querySelector(`#${this.id}-${key}-name`);
+            const barElement = info.querySelector(`#${this.id}-${key}-bar`);
+            const numericHpElement = info.querySelector(`#${this.id}-${key}-hp-numeric`);
+
+            if (nameDisplayElement) {
+                 nameDisplayElement.textContent = `${partSlotNamesJP[key] || key}: ${part.name_jp || 'N/A'}`;
+            }
+            if (numericHpElement) {
+                numericHpElement.textContent = `(${part.hp}/${part.maxHp})`;
+            }
+
             this.partDOMElements[key] = {
-                container: partEl, // パーツ全体のコンテナ (Container for the whole part)
-                name: partEl.querySelector('.part-name'), // パーツ名表示用span (Span for part name display)
-                bar: partEl.querySelector('.part-hp-bar') // HPバー表示用div (Div for HP bar display)
+                wrapper: wrapperElement,
+                nameDisplay: nameDisplayElement,
+                bar: barElement,
+                numericHp: numericHpElement
             };
         });
         return info;
@@ -359,19 +384,19 @@ class Medarot {
     updateInfoPanel() {
         Object.entries(this.parts).forEach(([key, part]) => {
             const elements = this.partDOMElements[key];
-            if (!elements) return; // DOM要素がなければ何もしない (If no DOM elements, do nothing)
+            if (!elements || !elements.bar || !elements.numericHp || !elements.wrapper) return;
 
-            const hpPercentage = (part.hp / part.maxHp) * 100; // HPの割合 (HP percentage)
-            elements.bar.style.width = `${hpPercentage}%`; // HPバーの幅を更新 (Update HP bar width)
-            elements.container.classList.toggle('broken', part.isBroken); // 破壊状態なら 'broken' クラスを付与 (Add 'broken' class if part is broken)
+            const hpPercentage = (part.hp / part.maxHp) * 100;
+            elements.bar.style.width = `${hpPercentage}%`;
+            elements.numericHp.textContent = `(${part.hp}/${part.maxHp})`;
+            elements.wrapper.classList.toggle('broken', part.isBroken);
 
-            // HPに応じたバーの色変更 (Change bar color according to HP)
             if (part.isBroken) {
-                elements.bar.style.backgroundColor = '#4a5568'; // 破壊時はグレー (Gray when broken)
+                elements.bar.style.backgroundColor = '#4a5568';
             } else {
-                if (hpPercentage > 50) elements.bar.style.backgroundColor = '#68d391'; // 50%超は緑 (Green if over 50%)
-                else if (hpPercentage > 20) elements.bar.style.backgroundColor = '#f6e05e'; // 20%超は黄色 (Yellow if over 20%)
-                else elements.bar.style.backgroundColor = '#f56565'; // 20%以下は赤 (Red if 20% or less)
+                if (hpPercentage > 50) elements.bar.style.backgroundColor = '#68d391';
+                else if (hpPercentage > 20) elements.bar.style.backgroundColor = '#f6e05e';
+                else elements.bar.style.backgroundColor = '#f56565';
             }
         });
     }
