@@ -1,0 +1,123 @@
+body {
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background-color: #1a202c;
+            color: #e2e8f0;
+            margin: 0;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow: hidden;
+        }
+        .main-container {
+            background-color: #2d3748;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 1000px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        /* バトルフィールド */
+        .battlefield {
+            width: 100%;
+            height: 250px;
+            background-color: #4a5568;
+            border: 2px solid #718096;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+        /* 中央線 */
+        .center-line {
+            position: absolute;
+            left: 50%;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background-color: rgba(255, 255, 255, 0.2);
+            transform: translateX(-50%);
+        }
+        /* プレイヤーアイコン */
+        .player-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            position: absolute;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            color: #1a202c;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.4);
+            transition: left 0.1s linear, transform 0.3s ease, background-color 0.3s ease;
+            cursor: pointer;
+        }
+        /* プレイヤーアイコンの状態 */
+        .player-icon.ready-select,
+        .player-icon.ready-execute {
+            transform: translate(-50%, -50%) scale(1.2); /* 行動可能な時に少し大きく */
+            animation: pulse 1.5s infinite;
+        }
+        .player-icon.broken {
+            background-color: #718096 !important;
+            color: #a0aec0;
+            box-shadow: none;
+            filter: grayscale(1);
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 255, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+        }
+        /* 情報表示エリア */
+        .info-panels {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            gap: 20px;
+        }
+        .team-info-panel {
+            width: 48%;
+            background-color: #4a5568;
+            padding: 15px;
+            border-radius: 8px;
+        }
+        .player-info {
+            margin-bottom: 10px;
+        }
+        .player-name {
+            font-weight: bold;
+        }
+        .parts-container {
+            display: flex;
+            gap: 10px;
+            margin-top: 5px;
+            font-size: 0.8em;
+        }
+        .part-hp { display: flex; align-items: center; gap: 4px; }
+        .part-hp-bar-container { width: 30px; height: 6px; background-color: #718096; border-radius: 3px; overflow: hidden; }
+        .part-hp-bar { height: 100%; transition: width 0.3s ease; }
+        .part-hp.broken .part-name { text-decoration: line-through; color: #a0aec0; }
+        /* モーダル */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+        .modal-content { background: #2d3748; padding: 30px; border-radius: 12px; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.5); min-width: 300px; }
+        .modal-title { font-size: 1.8em; font-weight: bold; margin-bottom: 15px; }
+        .modal-actor { font-size: 1.2em; margin-bottom: 25px; }
+        .modal-button { background: #68d391; color: #1a202c; padding: 12px 25px; border-radius: 8px; font-size: 1.1em; cursor: pointer; transition: background-color 0.2s; border:none; }
+        .modal-button:hover { background: #48bb78; }
+        .part-action-button { background: #4299e1; color: white; padding: 8px 15px; border-radius: 6px; font-size: 0.95em; cursor: pointer; transition: background-color 0.2s ease; border:none; }
+        .part-action-button:hover:not(:disabled) { background: #3182ce; }
+        .part-action-button:disabled { background: #718096; cursor: not-allowed; opacity: 0.6; }
+        .hidden { display: none !important; }
+        /* ボタン */
+        .buttons-center { display: flex; justify-content: center; gap: 10px; margin-top: 20px; }
+        button { background-color: #4299e1; color: white; padding: 10px 20px; border: none; border-radius: 8px; font-size: 1em; cursor: pointer; transition: background-color 0.3s; }
+        button:hover { background-color: #3182ce; }
+        button:disabled { background-color: #a0aec0; cursor: not-allowed; }
