@@ -15,12 +15,18 @@ const CONFIG = {
 // メダルクラス (Medal Class)
 // メダロットのコアとなるメダルの定義 (Defines the core medal of a Medarot)
 class Medal {
-    constructor(name, personality, medaforce, attribute, skillLevels) {
-        this.name = name; // メダル名 (Medal name) e.g., "Kabuto", "Kuwagata"
-        this.personality = personality; // 性格 (Personality) e.g., "Speed"
-        this.medaforce = medaforce; // メダフォース (Medaforce) e.g., "Berserk"
-        this.attribute = attribute; // 属性 (Attribute) e.g., "Fire"
-        this.skillLevels = skillLevels; // 熟練度 (Skill Levels) e.g., { shoot: 0, fight: 0, scan: 0, support: 0 }
+    constructor(data) {
+        this.id = data.id; // Store ID
+        this.name = data.name_jp; // Use name_jp from CSV
+        this.personality = data.personality_jp;
+        this.medaforce = data.medaforce_jp;
+        this.attribute = data.attribute_jp;
+        this.skillLevels = {
+            shoot: parseInt(data.skill_shoot) || 0,
+            fight: parseInt(data.skill_fight) || 0,
+            scan: parseInt(data.skill_scan) || 0,
+            support: parseInt(data.skill_support) || 0
+        };
     }
 }
 
@@ -83,12 +89,16 @@ class Medarot {
 
         const slots = ['head', 'rightArm', 'leftArm', 'legs'];
         slots.forEach(slotKey => {
-            const partId = this.partsConfig ? this.partsConfig[slotKey] : null; // Check if partsConfig exists
-            if (partId && this.allPartsData) { // Check if allPartsData exists
-                const partData = this.allPartsData.find(p => p.id === partId);
-                if (partData) {
-                    this.parts[slotKey] = {
-                        id: partData.id,
+            const partId = this.partsConfig ? this.partsConfig[slotKey] : null;
+            let partData = null;
+
+            if (partId && this.allPartsData && this.allPartsData[slotKey] && Array.isArray(this.allPartsData[slotKey])) {
+                partData = this.allPartsData[slotKey].find(p => p.id === partId);
+            }
+
+            if (partData) {
+                this.parts[slotKey] = {
+                    id: partData.id,
                         name_jp: partData.name_jp,
                         category_jp: partData.category_jp,
                         sub_category_jp: partData.sub_category_jp,
@@ -350,7 +360,8 @@ class Medarot {
 class GameManager {
     // コンストラクタ (Constructor)
     constructor() {
-        this.partsData = []; // CSVからロードされるパーツデータ (Parts data loaded from CSV)
+        this.partsData = { head: [], rightArm: [], leftArm: [], legs: [] }; // Changed to object
+        this.medalsData = []; // Added for medals
         this.medarots = []; // 全メダロットのリスト (List of all Medarots) (formerly this.players)
         this.simulationInterval = null; // シミュレーションのインターバルID (Interval ID for simulation)
         this.activeMedarot = null; // 現在アクティブなメダロット (Currently active Medarot) (formerly this.activePlayer)
@@ -376,41 +387,67 @@ class GameManager {
     // 初期化 (Initialization)
     // ゲームの初期設定（メダロット作成、UI設定、イベント紐付け）を行います (Performs initial game setup (Medarot creation, UI setup, event binding))
     async init() { // Make init asynchronous
-        await this.loadPartsCSV(); // Load parts data first
+        await this.loadGameData(); // Changed to loadGameData
         this.createMedarots();
         this.setupUI();
         this.bindEvents();
     } // createPlayers を createMedarots に変更 (Changed createPlayers to createMedarots)
 
-    // CSVからパーツデータをロードするメソッド (Method to load parts data from CSV)
-    async loadPartsCSV() {
-        try {
-            const response = await fetch('parts.csv');
-            if (!response.ok) {
-                console.error('Failed to load parts.csv:', response.statusText);
-                this.partsData = [];
-                return;
-            }
-            const csvText = await response.text();
-            const lines = csvText.trim().split('\n');
-            if (lines.length < 2) {
-                console.error('parts.csv is empty or has no data rows.');
-                this.partsData = [];
-                return;
-            }
-            const headers = lines[0].split(',').map(h => h.trim());
-            this.partsData = lines.slice(1).map(line => {
-                const values = line.split(',');
-                const part = {};
-                headers.forEach((header, index) => {
-                    part[header] = values[index] ? values[index].trim() : '';
-                });
-                return part;
-            }).filter(part => part.id); // Ensure part has an ID
-        } catch (error) {
-            console.error('Error loading or parsing parts.csv:', error);
-            this.partsData = [];
+    // Helper function to parse CSV text
+    parseCsvText(csvText) {
+        const lines = csvText.trim().split('\n');
+        if (lines.length < 1) { // Allow empty CSV or header-only CSV
+            return [];
         }
+        const headers = lines[0].split(',').map(h => h.trim());
+        if (lines.length < 2) { // Only header row
+            return [];
+        }
+        return lines.slice(1).map(line => {
+            const values = line.split(',');
+            const entry = {};
+            headers.forEach((header, index) => {
+                entry[header] = values[index] ? values[index].trim() : '';
+            });
+            return entry;
+        }).filter(entry => entry.id); // Ensure entry has an ID
+    }
+
+    async loadGameData() {
+        const filesToLoad = [
+            { key: 'medals', path: 'medals.csv', target: 'medalsData' },
+            { key: 'head', path: 'head_parts.csv', target: 'partsData', slot: 'head' },
+            { key: 'rightArm', path: 'right_arm_parts.csv', target: 'partsData', slot: 'rightArm' },
+            { key: 'leftArm', path: 'left_arm_parts.csv', target: 'partsData', slot: 'leftArm' },
+            { key: 'legs', path: 'legs_parts.csv', target: 'partsData', slot: 'legs' }
+        ];
+
+        // Initialize data structures
+        this.medalsData = [];
+        this.partsData = { head: [], rightArm: [], leftArm: [], legs: [] };
+
+        for (const file of filesToLoad) {
+            try {
+                const response = await fetch(file.path);
+                if (!response.ok) {
+                    console.error(`Failed to load ${file.path}: ${response.statusText}`);
+                    continue;
+                }
+                const csvText = await response.text();
+                const parsedData = this.parseCsvText(csvText);
+
+                if (file.target === 'medalsData') {
+                    this.medalsData = parsedData;
+                } else if (file.target === 'partsData' && file.slot) {
+                    this.partsData[file.slot] = parsedData;
+                }
+            } catch (error) {
+                console.error(`Error loading or parsing ${file.path}:`, error);
+            }
+        }
+        // For debugging:
+        // console.log("Loaded Medals:", this.medalsData);
+        // console.log("Loaded Parts:", this.partsData);
     }
 
     // メダロット作成 (Create Medarots)
@@ -431,23 +468,81 @@ class GameManager {
 
         Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig], teamIndex) => {
             for (let i = 0; i < CONFIG.PLAYERS_PER_TEAM; i++) {
-                const id = teamIndex * CONFIG.PLAYERS_PER_TEAM + i + 1;
-                const defaultMedal = new Medal(
-                    (i % 2 === 0) ? "Kabuto" : "Kuwagata",
-                    "Speed", "Berserk", (i % 2 === 0) ? "Fire" : "Thunder",
-                    { shoot: 10, fight: 5, scan: 0, support: 0 }
-                );
+                const medarotIdNumber = teamIndex * CONFIG.PLAYERS_PER_TEAM + i + 1;
+                const medarotDisplayId = `p${medarotIdNumber}`;
 
-                const loadoutIndex = teamIndex * CONFIG.PLAYERS_PER_TEAM + i;
-                const medarotPartsConfig = defaultLoadouts[loadoutIndex % defaultLoadouts.length];
+                let medarotPartsConfig;
+                let selectedMedalDataForCurrentMedarot; // Renamed to avoid conflict
+
+                if (teamIndex === 0 && i === 0) { // First Medarot of Team 1 (p1)
+                    console.log(`Attempting to equip METABEE_SET for Medarot ${medarotDisplayId}`);
+                    const targetSetId = "METABEE_SET";
+                    const targetPartIdInSet = "P001"; // Common 'id' for parts within this set
+                    const partsConfigForSet = {};
+                    let setComplete = true;
+                    const slotsToEquip = ['head', 'rightArm', 'leftArm', 'legs'];
+
+                    for (const slot of slotsToEquip) {
+                        if (this.partsData[slot] && Array.isArray(this.partsData[slot])) {
+                            const part = this.partsData[slot].find(p => p.set_id === targetSetId && p.id === targetPartIdInSet);
+                            if (part) {
+                                partsConfigForSet[slot] = part.id; // Use the local P001 ID for config
+                            } else {
+                                setComplete = false;
+                                console.warn(`Part not found for METABEE_SET: slot ${slot}, set_id ${targetSetId}, part_id ${targetPartIdInSet}`);
+                                break;
+                            }
+                        } else {
+                            setComplete = false;
+                            console.warn(`Parts data for slot ${slot} is missing or not an array.`);
+                            break;
+                        }
+                    }
+
+                    if (setComplete) {
+                        medarotPartsConfig = partsConfigForSet;
+                        selectedMedalDataForCurrentMedarot = this.medalsData.find(m => m.id === "M001"); // Kabuto Medal
+                        if (!selectedMedalDataForCurrentMedarot) {
+                            console.warn("METABEE_SET's conventional medal (M001) not found. Falling back to default medal selection for p1.");
+                            const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
+                            selectedMedalDataForCurrentMedarot = this.medalsData[medalIndex];
+                        }
+                    } else {
+                        console.warn(`METABEE_SET for ${medarotDisplayId} is incomplete. Falling back to default loadout for p1.`);
+                        const loadoutIndex = teamIndex * CONFIG.PLAYERS_PER_TEAM + i; // Should be 0
+                        medarotPartsConfig = defaultLoadouts[loadoutIndex % defaultLoadouts.length];
+                        const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
+                        selectedMedalDataForCurrentMedarot = this.medalsData[medalIndex];
+                    }
+                } else {
+                    // Existing default loadout and medal selection for other Medarots
+                    const loadoutIndex = teamIndex * CONFIG.PLAYERS_PER_TEAM + i;
+                    medarotPartsConfig = defaultLoadouts[loadoutIndex % defaultLoadouts.length];
+                    const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
+                    selectedMedalDataForCurrentMedarot = this.medalsData[medalIndex];
+                }
+
+                let medalForMedarot;
+                if (selectedMedalDataForCurrentMedarot) {
+                    medalForMedarot = new Medal(selectedMedalDataForCurrentMedarot);
+                } else {
+                    // This console.warn might be redundant if the previous one for p1's specific medal covers it,
+                    // or if the general medalIndex logic has an issue.
+                    console.warn(`No medal data found for Medarot ${medarotDisplayId}. Using a default fallback medal.`);
+                    medalForMedarot = new Medal({
+                        id: 'M_FALLBACK', name_jp: 'フォールバックメダル', personality_jp: 'ノーマル',
+                        medaforce_jp: 'なし', attribute_jp: '無',
+                        skill_shoot: '1', skill_fight: '1', skill_scan: '1', skill_support: '1'
+                    });
+                }
 
                 this.medarots.push(new Medarot(
-                    `p${id}`, `Medarot ${id}`, teamId,
+                    medarotDisplayId, `Medarot ${medarotIdNumber}`, teamId,
                     teamConfig.baseSpeed + (Math.random() * 0.2),
-                    defaultMedal,
+                    medalForMedarot,
                     { isLeader: i === 0, color: teamConfig.color },
-                    medarotPartsConfig, // Pass the selected parts configuration
-                    this.partsData      // Pass the loaded CSV data
+                    medarotPartsConfig,
+                    this.partsData
                 ));
             }
         });

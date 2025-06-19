@@ -1,0 +1,6 @@
+id,set_id,name_jp,category_jp,sub_category_jp,base_hp,charge,cooldown
+P001,METABEE_SET,レッグガードA,防御,防御,65,0,0
+P002,ROKUSHO_SET,レッグガードB,防御,防御,65,0,0
+P003,NONE,トラップ,妨害,罠,30,0,0
+P004,NONE,プラント,支援,装置,0,0,0
+P005,NONE,フルガード,防御,防御,70,40,60
