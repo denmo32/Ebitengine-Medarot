@@ -614,6 +614,7 @@ class GameManager {
         attacker.pendingTargetEnemy = null;
         attacker.pendingTargetPartKey = null;
 
+        this.clearArrow(); // Clear arrow after execution is confirmed
         this.activeMedarot = null;
         this.hideModal();
         this.resumeSimulation();
