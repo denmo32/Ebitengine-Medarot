@@ -521,14 +521,18 @@ class GameManager {
         this.medarots = []; // メダロットリストを初期化 (Initialize Medarot list)
 
         const defaultLoadouts = [
-            // Team 1 Loadouts
-            { head: "P003", rightArm: "P001", leftArm: "P004", legs: "P026" }, // Leader
-            { head: "P008", rightArm: "P002", leftArm: "P005", legs: "P026" }, // Member 1
-            { head: "P016", rightArm: "P017", leftArm: "P018", legs: "P026" }, // Member 2
-            // Team 2 Loadouts
-            { head: "P007", rightArm: "P006", leftArm: "P009", legs: "P026" }, // Leader
-            { head: "P011", rightArm: "P012", leftArm: "P014", legs: "P026" }, // Member 1
-            { head: "P013", rightArm: "P020", leftArm: "P022", legs: "P026" }  // Member 2
+            // Loadout 0 (p1 fallback, used by p2 if p1 takes METABEE_SET) - General Purpose Shooter
+            { head: "P002", rightArm: "P003", leftArm: "P003", legs: "P002" },
+            // Loadout 1 (used by p3) - General Purpose Fighter
+            { head: "P003", rightArm: "P002", leftArm: "P002", legs: "P003" },
+            // Loadout 2 (used by p4) - Support / Disrupt
+            { head: "P006", rightArm: "P005", leftArm: "P004", legs: "P004" },
+            // Loadout 3 (used by p5) - Heavy Shooter
+            { head: "P007", rightArm: "P007", leftArm: "P005", legs: "P005" },
+            // Loadout 4 (used by p6) - Disruptor / Unique
+            { head: "P004", rightArm: "P004", leftArm: "P001", legs: "P006" },
+            // Loadout 5 (extra, for cycling if more medarots) - Balanced / Mixed
+            { head: "P005", rightArm: "P006", leftArm: "P006", legs: "P007" }
         ];
 
         Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig], teamIndex) => {
