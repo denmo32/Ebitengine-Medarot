@@ -40,8 +40,8 @@ body {
             left: 50%;
             top: 0;
             bottom: 0;
-            width: 2px;
-            background-color: rgba(255, 255, 255, 0.2);
+            width: 4px; /* Increased width */
+            background-color: #718096; /* Changed color */
             transform: translateX(-50%);
         }
         /* プレイヤーアイコン */
@@ -121,3 +121,120 @@ body {
         button { background-color: #4299e1; color: white; padding: 10px 20px; border: none; border-radius: 8px; font-size: 1em; cursor: pointer; transition: background-color 0.3s; }
         button:hover { background-color: #3182ce; }
         button:disabled { background-color: #a0aec0; cursor: not-allowed; }
+
+/* --- Player Info Panel Adjustments --- */
+
+/* Make parts stack vertically */
+.parts-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px; /* Space between part wrappers */
+}
+
+/* Wrapper for each part's info (name, hp bar, numeric hp) */
+.part-info-wrapper {
+    display: flex;
+    flex-direction: column; /* Name above, HP section below */
+    padding: 4px;
+    border: 1px solid #4a5568; /* Similar to existing part-hp border, adjust if needed */
+    border-radius: 4px;
+    background-color: rgba(255, 255, 255, 0.05); /* Slight background for each part */
+}
+
+/* Styling for the part name display ("部位: パーツ名") */
+.part-name-display {
+    font-size: 0.9em;
+    font-weight: bold;
+    margin-bottom: 4px;
+    color: #cbd5e0; /* Light gray, adjust to match theme */
+}
+
+/* Section that groups HP bar and numeric HP to keep them on one line */
+.part-hp-section {
+    display: flex;
+    align-items: center; /* Vertically align bar and numeric text */
+    gap: 8px; /* Space between bar and numeric text */
+}
+
+/* Ensure HP bar container takes up available space */
+.part-hp-bar-container {
+    flex-grow: 1; /* Allows bar container to fill space */
+    height: 12px; /* Or match existing height */
+    background-color: #2d3748; /* Bar background */
+    border-radius: 3px;
+    overflow: hidden; /* Ensure bar stays within container */
+}
+
+.part-hp-bar {
+    height: 100%;
+    /* background-color is set by JS */
+    transition: width 0.3s ease, background-color 0.3s ease;
+    border-radius: 3px;
+}
+
+/* Styling for numeric HP display "(Current/Max)" */
+.part-hp-numeric {
+    font-size: 0.85em;
+    white-space: nowrap; /* Prevent wrapping */
+    color: #a0aec0; /* Medium gray, adjust to match theme */
+    min-width: 50px; /* Give it some minimum width to prevent layout shifts */
+    text-align: right;
+}
+
+/* Adjustments for broken state on the new wrapper */
+.part-info-wrapper.broken {
+    border-color: #718096;
+    opacity: 0.7;
+}
+
+.part-info-wrapper.broken .part-name-display {
+    text-decoration: line-through;
+    color: #718096;
+}
+
+.part-info-wrapper.broken .part-hp-bar {
+    background-color: #4a5568 !important; /* Override JS color when broken */
+}
+
+/* Optional: Adjust overall player-info panel if it becomes too cramped */
+.player-info {
+    /* Consider adjusting padding, width, or min-height if necessary */
+    /* For example, if it needs more width: */
+    /* width: 220px; */ /* Original might be smaller */
+}
+
+#aiming-arrow {
+    z-index: 100; /* Ensure it's above battlefield but below modal if modal is higher */
+}
+
+/* === Jules: Force .center-line style update === */
+.center-line {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 8px !important; /* Increased width to 8px */
+    background-color: #718096 !important; /* New color, added !important */
+    transform: translateX(-50%) !important; /* Centers the div, added !important */
+    z-index: 0 !important; /* Ensure it's visible on battlefield, but behind icons if they have z-index > 0 */
+}
+
+/* --- Execute Lines --- */
+.execute-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px; /* Thickness of the line */
+    background-color: rgba(255, 255, 0, 0.5); /* Yellowish, semi-transparent */
+    z-index: 1; /* Above center line, below icons */
+}
+
+#team1-execute-line {
+    left: calc(var(--team1-execute-x, 45) * 1%); /* Set by JS via CSS variable */
+    transform: translateX(-50%);
+}
+
+#team2-execute-line {
+    left: calc(var(--team2-execute-x, 55) * 1%); /* Set by JS via CSS variable */
+    transform: translateX(-50%);
+}

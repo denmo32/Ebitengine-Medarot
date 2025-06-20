@@ -12,6 +12,8 @@
         <h1 class="text-3xl font-bold text-center mb-4 text-white">メダロット風 バトルシミュレーター</h1>
         <div id="battlefield" class="battlefield">
             <div class="center-line"></div>
+            <div id="team1-execute-line" class="execute-line"></div>
+            <div id="team2-execute-line" class="execute-line"></div>
         </div>
         <div class="info-panels">
             <div id="team1InfoPanel" class="team-info-panel">
@@ -33,8 +35,11 @@
             <div id="partSelectionContainer" class="buttons-center gap-4 flex-col"></div>
             <button id="modalConfirmButton" class="modal-button" style="display: none;"></button>
             <button id="battleStartConfirmButton" class="modal-button" style="display: none;">戦闘開始！</button>
+            <button id="modalExecuteAttackButton" class="control-button modal-button" style="display: none;">攻撃実行</button>
+            <button id="modalCancelActionButton" class="control-button modal-button bg-gray-500 hover:bg-gray-600" style="display: none;">キャンセル</button>
         </div>
     </div>
+    <div id="aiming-arrow" style="display: none; position: absolute; background-color: yellow; height: 2px; transform-origin: 0 50%;"></div>
     <script src="script.js"></script>
 </body>
 </html>
