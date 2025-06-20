@@ -1,9 +1,0 @@
-id,set_id,name_jp,category_jp,sub_category_jp,base_hp,charge,cooldown
-P001,METABEE_SET,マグナム,射撃,撃つ,50,75,100
-P002,ROKUSHO_SET,ソード,格闘,殴る,52,72,92
-P003,NONE,ショットガン,射撃,撃つ,50,80,110
-P004,NONE,回避ダウン,妨害,阻害,40,80,100
-P005,NONE,回避アップ,支援,補助,40,60,80
-P006,NONE,アンチシー,射撃,撃つ,50,78,105
-P007,NONE,メガガトリング,射撃,撃つ,60,85,120
-P008,NONE,デストロイ,妨害,侵食,38,92,112

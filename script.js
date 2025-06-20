@@ -1,19 +1,25 @@
 // 1. 中央集権的な設定 (Centralized configuration)
 const CONFIG = {
-    MAX_GAUGE: 100, // ゲージの最大値 (Maximum gauge value)
-    UPDATE_INTERVAL: 50, // 更新間隔（ミリ秒） (Update interval in milliseconds)
-    PLAYERS_PER_TEAM: 3, // チームあたりのメダロット数 (Number of Medarots per team)
-    PART_HP_BASE: 50, // パーツHPの基本値 (Base HP for parts)
-    LEGS_HP_BONUS: 10, // 脚部パーツHPボーナス (Legs part HP bonus)
-    BASE_DAMAGE: 20, // 基本ダメージ (Base damage)
-    TEAMS: {
-        team1: { name: 'Team 1', color: '#63b3ed', baseSpeed: 1.0, textColor: 'text-blue-300' },
-        team2: { name: 'Team 2', color: '#f56565', baseSpeed: 0.9, textColor: 'text-red-300' }
+    UI: { // New sub-object for UI related constants
+        TEAM1_EXECUTE_X: 0.45,
+        TEAM2_EXECUTE_X: 0.55,
+        TEAM1_HOME_X: 0.0,
+        TEAM2_HOME_X: 1.0
     },
-    TEAM1_EXECUTE_X: 0.45, // Changed from 0.40
-    TEAM2_EXECUTE_X: 0.55, // Changed from 0.60
-    TEAM1_HOME_X: 0.0,
-    TEAM2_HOME_X: 1.0
+    RULES: { // New sub-object for game rules and balance
+        MAX_GAUGE: 100,
+        UPDATE_INTERVAL: 50,
+        PLAYERS_PER_TEAM: 3,
+        PART_HP_BASE: 50,
+        LEGS_HP_BONUS: 10,
+        BASE_DAMAGE: 20,
+        TEAM1_BASE_SPEED: 1.0, // Moved and renamed from TEAMS.team1.baseSpeed
+        TEAM2_BASE_SPEED: 0.9  // Moved and renamed from TEAMS.team2.baseSpeed
+    },
+    TEAMS: { // TEAMS now only contains display/theming info
+        team1: { name: 'Team 1', color: '#63b3ed', textColor: 'text-blue-300' },
+        team2: { name: 'Team 2', color: '#f56565', textColor: 'text-red-300' }
+    }
 };
 
 // メダルクラス (Medal Class)
@@ -39,7 +45,7 @@ class Medarot {
         this.id = id;
         this.name = name;
         this.team = team;
-        this.speed = speed;
+        this.speed = speed; // This speed is now directly passed, potentially derived from CONFIG.RULES.TEAMX_BASE_SPEED
         this.medal = medal;
         this.isLeader = options.isLeader;
         this.color = options.color;
@@ -72,7 +78,7 @@ class Medarot {
         this.legMobility = 0;
         this.legPropulsion = 0;
         this.legDefenseParam = 0;
-        this.loggedConfigPositions = false; // Initialize flag for logging CONFIG
+        this.loggedConfigPositions = false;
 
         this.parts = {};
 
@@ -86,26 +92,33 @@ class Medarot {
             const partId = this.partsConfig ? this.partsConfig[slotKey] : null;
             let partDataFound = false;
 
-            if (partId && this.allPartsData && this.allPartsData[slotKey] && Array.isArray(this.allPartsData[slotKey])) {
-                const partData = this.allPartsData[slotKey].find(p => p.id === partId);
+            // this.allPartsData is now a flat array. We need to find the part by ID and also by its 'slot' property.
+            if (partId && this.allPartsData && Array.isArray(this.allPartsData)) {
+                const partData = this.allPartsData.find(p => p.id === partId && p.slot === slotKey);
                 if (partData) {
                     this.parts[slotKey] = {
                         id: partData.id,
                         name_jp: partData.name_jp,
                         category_jp: partData.category_jp,
                         sub_category_jp: partData.sub_category_jp,
-                        slot: slotKey,
-                        hp: parseInt(partData.base_hp) || CONFIG.PART_HP_BASE,
-                        maxHp: parseInt(partData.base_hp) || CONFIG.PART_HP_BASE,
+                        slot: slotKey, // or partData.slot, should be the same
+                        hp: parseInt(partData.base_hp) || CONFIG.RULES.PART_HP_BASE,
+                        maxHp: parseInt(partData.base_hp) || CONFIG.RULES.PART_HP_BASE,
                         charge: parseInt(partData.charge) || 0,
                         cooldown: parseInt(partData.cooldown) || 0,
                         isBroken: false
                     };
 
                     if (slotKey === 'legs') {
-                        this.parts[slotKey].hp += CONFIG.LEGS_HP_BONUS;
-                        this.parts[slotKey].maxHp += CONFIG.LEGS_HP_BONUS;
-                        this.legMovementType = partData.movement_type_jp;
+                        // For legs, specific properties are read from parts.csv if they exist
+                        // These were previously handled when legs parts had a different structure.
+                        // Now, parts.csv has a unified structure.
+                        // We need to ensure these fields are present in parts.csv for leg parts or handle their absence.
+                        this.parts[slotKey].hp += CONFIG.RULES.LEGS_HP_BONUS;
+                        this.parts[slotKey].maxHp += CONFIG.RULES.LEGS_HP_BONUS;
+
+                        // Assuming these fields might not exist for non-leg parts, provide defaults or check existence.
+                        this.legMovementType = partData.movement_type_jp || '標準'; // Default if not specified
                         this.legAccuracy = parseInt(partData.accuracy) || 0;
                         this.legMobility = parseInt(partData.mobility) || 0;
                         this.legPropulsion = parseInt(partData.propulsion) || 0;
@@ -113,11 +126,11 @@ class Medarot {
                     }
                     partDataFound = true;
                 } else {
-                    console.warn(`Part ID '${partId}' for slot '${slotKey}' not found in loaded parts data. Equipping default.`);
+                    console.warn(`Part ID '${partId}' for slot '${slotKey}' not found in the global parts data. Equipping default.`);
                 }
             } else {
                 if (partId) {
-                    console.warn(`Parts data for slot '${slotKey}' missing or invalid, or partId '${partId}' configured but data structure issue. Equipping default.`);
+                    console.warn(`Global parts data (this.allPartsData) is missing or not an array, or partId '${partId}' configured. Equipping default.`);
                 }
             }
 
@@ -150,17 +163,16 @@ class Medarot {
         this.pendingTargetPartKey = null;
 
         this.selectedPartKey = partKey;
-        if (this.parts[partKey]) { // Ensure part exists before accessing properties
+        if (this.parts[partKey]) {
             this.selectedActionType = this.parts[partKey].sub_category_jp;
             this.currentActionCharge = this.parts[partKey].charge;
             this.currentActionCooldown = this.parts[partKey].cooldown;
         } else {
             console.error(`Selected partKey ${partKey} does not exist on Medarot ${this.id}. Cannot select action.`);
-            // Potentially set a state that prevents further action, or throw error
             this.selectedActionType = null;
             this.currentActionCharge = null;
             this.currentActionCooldown = null;
-            return; // Exit if part is invalid
+            return;
         }
         this.gauge = 0;
         this.state = 'action_charging';
@@ -207,8 +219,8 @@ class Medarot {
         this.gauge += baseChargeRate + propulsionBonus;
 
         if (this.state === 'idle_charging') {
-            if (this.gauge >= CONFIG.MAX_GAUGE) {
-                this.gauge = CONFIG.MAX_GAUGE;
+            if (this.gauge >= CONFIG.RULES.MAX_GAUGE) { // Updated path
+                this.gauge = CONFIG.RULES.MAX_GAUGE; // Updated path
                 this.state = 'ready_select';
             }
         } else if (this.state === 'action_charging') {
@@ -261,7 +273,7 @@ class Medarot {
     createInfoPanelDOM() {
         const info = document.createElement('div');
         info.className = 'player-info';
-        const teamConfig = CONFIG.TEAMS[this.team];
+        const teamConfig = CONFIG.TEAMS[this.team]; // TEAMS access is fine
 
         const partSlotNamesJP = { head: '頭部', rightArm: '右腕', leftArm: '左腕', legs: '脚部' };
         let partsHTML = '';
@@ -319,11 +331,12 @@ class Medarot {
         console.log(`[DEBUG] updatePosition for ${this.id} (Team: ${this.team}, State: ${this.state}, Gauge: ${this.gauge})`);
 
         if (!this.loggedConfigPositions && (this.id === 'p1' || this.id === 'p4')) {
-            console.log(`[DEBUG] CONFIG relevant for positioning: T1_HOME_X=${CONFIG.TEAM1_HOME_X}, T1_EXEC_X=${CONFIG.TEAM1_EXECUTE_X}, T2_HOME_X=${CONFIG.TEAM2_HOME_X}, T2_EXEC_X=${CONFIG.TEAM2_EXECUTE_X}`);
+            // Updated paths for CONFIG.UI values
+            console.log(`[DEBUG] CONFIG relevant for positioning: T1_HOME_X=${CONFIG.UI.TEAM1_HOME_X}, T1_EXEC_X=${CONFIG.UI.TEAM1_EXECUTE_X}, T2_HOME_X=${CONFIG.UI.TEAM2_HOME_X}, T2_EXEC_X=${CONFIG.UI.TEAM2_EXECUTE_X}`);
             this.loggedConfigPositions = true;
         }
 
-        let currentMaxGauge = CONFIG.MAX_GAUGE;
+        let currentMaxGauge = CONFIG.RULES.MAX_GAUGE; // Updated path
         if (this.state === 'action_charging' && this.currentActionCharge != null) {
             currentMaxGauge = this.currentActionCharge;
         } else if (this.state === 'action_cooldown' && this.currentActionCooldown != null) {
@@ -340,44 +353,45 @@ class Medarot {
         }
 
         let positionXRatio;
+        // Updated paths for CONFIG.UI values in switch cases
         switch (this.state) {
             case 'action_charging':
                 if (this.team === 'team1') {
-                    positionXRatio = CONFIG.TEAM1_HOME_X + progress * (CONFIG.TEAM1_EXECUTE_X - CONFIG.TEAM1_HOME_X);
+                    positionXRatio = CONFIG.UI.TEAM1_HOME_X + progress * (CONFIG.UI.TEAM1_EXECUTE_X - CONFIG.UI.TEAM1_HOME_X);
                 } else {
-                    positionXRatio = CONFIG.TEAM2_HOME_X - progress * (CONFIG.TEAM2_HOME_X - CONFIG.TEAM2_EXECUTE_X);
+                    positionXRatio = CONFIG.UI.TEAM2_HOME_X - progress * (CONFIG.UI.TEAM2_HOME_X - CONFIG.UI.TEAM2_EXECUTE_X);
                 }
                 break;
             case 'idle_charging':
             case 'action_cooldown':
                 if (this.team === 'team1') {
-                    positionXRatio = CONFIG.TEAM1_EXECUTE_X - progress * (CONFIG.TEAM1_EXECUTE_X - CONFIG.TEAM1_HOME_X);
+                    positionXRatio = CONFIG.UI.TEAM1_EXECUTE_X - progress * (CONFIG.UI.TEAM1_EXECUTE_X - CONFIG.UI.TEAM1_HOME_X);
                 } else {
-                    positionXRatio = CONFIG.TEAM2_EXECUTE_X + progress * (CONFIG.TEAM2_HOME_X - CONFIG.TEAM2_EXECUTE_X);
+                    positionXRatio = CONFIG.UI.TEAM2_EXECUTE_X + progress * (CONFIG.UI.TEAM2_HOME_X - CONFIG.UI.TEAM2_EXECUTE_X);
                 }
                 break;
             case 'ready_execute':
-                positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_EXECUTE_X : CONFIG.TEAM2_EXECUTE_X;
+                positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_EXECUTE_X : CONFIG.UI.TEAM2_EXECUTE_X;
                 break;
             case 'ready_select':
-                positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_HOME_X : CONFIG.TEAM2_HOME_X;
+                positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_HOME_X : CONFIG.UI.TEAM2_HOME_X;
                 break;
             case 'broken':
                 if (this.iconElement.style.left && this.iconElement.style.left !== '') {
                     positionXRatio = parseFloat(this.iconElement.style.left) / 100;
                 } else {
-                    positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_HOME_X : CONFIG.TEAM2_HOME_X;
+                    positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_HOME_X : CONFIG.UI.TEAM2_HOME_X;
                 }
                 break;
             default:
                 console.warn(`[DEBUG] Unknown state for ${this.id}: ${this.state}. Defaulting to home position.`);
-                positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_HOME_X : CONFIG.TEAM2_HOME_X;
+                positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_HOME_X : CONFIG.UI.TEAM2_HOME_X;
                 break;
         }
 
         if (typeof positionXRatio !== 'number' || isNaN(positionXRatio)) {
             console.error(`[DEBUG] Invalid positionXRatio calculated for ${this.id}: ${positionXRatio}. Defaulting to home.`);
-            positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_HOME_X : CONFIG.TEAM2_HOME_X;
+            positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_HOME_X : CONFIG.UI.TEAM2_HOME_X;
         }
 
         console.log(`[DEBUG] For ${this.id} (State: ${this.state}), calculated positionXRatio: ${positionXRatio.toFixed(3)}`);
@@ -424,12 +438,12 @@ class GameManager {
             modalActorName: document.getElementById('modalActorName'),
             partSelectionContainer: document.getElementById('partSelectionContainer'),
             modalConfirmButton: document.getElementById('modalConfirmButton'),
-            modalExecuteAttackButton: document.getElementById('modalExecuteAttackButton'), // New
-            modalCancelActionButton: document.getElementById('modalCancelActionButton'), // New
+            modalExecuteAttackButton: document.getElementById('modalExecuteAttackButton'),
+            modalCancelActionButton: document.getElementById('modalCancelActionButton'),
             battleStartConfirmButton: document.getElementById('battleStartConfirmButton'),
-            aimingArrow: document.getElementById('aiming-arrow') // New
+            aimingArrow: document.getElementById('aiming-arrow')
         };
-        Object.values(CONFIG.TEAMS).forEach(team => {
+        Object.values(CONFIG.TEAMS).forEach(team => { // TEAMS access is fine
             this.dom[team.name.replace(/\s/g, '')] = document.getElementById(`${team.name.replace(/\s/g, '')}InfoPanel`);
         });
     }
@@ -453,13 +467,10 @@ class GameManager {
     async loadGameData() {
         const filesToLoad = [
             { key: 'medals', path: 'medals.csv', target: 'medalsData' },
-            { key: 'head', path: 'head_parts.csv', target: 'partsData', slot: 'head' },
-            { key: 'rightArm', path: 'right_arm_parts.csv', target: 'partsData', slot: 'rightArm' },
-            { key: 'leftArm', path: 'left_arm_parts.csv', target: 'partsData', slot: 'leftArm' },
-            { key: 'legs', path: 'legs_parts.csv', target: 'partsData', slot: 'legs' }
+            { key: 'parts', path: 'parts.csv', target: 'partsData' }
         ];
         this.medalsData = [];
-        this.partsData = { head: [], rightArm: [], leftArm: [], legs: [] };
+        this.partsData = []; // Changed to a simple array
         for (const file of filesToLoad) {
             try {
                 const response = await fetch(file.path);
@@ -467,79 +478,72 @@ class GameManager {
                 const csvText = await response.text();
                 const parsedData = this.parseCsvText(csvText);
                 if (file.target === 'medalsData') this.medalsData = parsedData;
-                else if (file.target === 'partsData' && file.slot) this.partsData[file.slot] = parsedData;
+                else if (file.target === 'partsData') this.partsData = parsedData; // Store all parts in the single array
             } catch (error) { console.error(`Error loading or parsing ${file.path}:`, error); }
         }
     }
 
     createMedarots() {
         this.medarots = [];
-        const defaultLoadouts = [
-            { head: "P002", rightArm: "P003", leftArm: "P003", legs: "P002" },
-            { head: "P002", rightArm: "P002", leftArm: "P001", legs: "P003" },
-            { head: "P005", rightArm: "P001", leftArm: "P004", legs: "P004" },
-            { head: "P001", rightArm: "P007", leftArm: "P003", legs: "P005" },
-            { head: "P004", rightArm: "P004", leftArm: "P001", legs: "P006" },
-            { head: "P005", rightArm: "P006", leftArm: "P006", legs: "P007" }
+        const defaultLoadouts = [ // These IDs should match those in parts.csv
+            { head: "P003", rightArm: "P001", leftArm: "P004", legs: "P010" }, // Example: Laser, Magnum, Hammer, Full Guard
+            { head: "P007", rightArm: "P002", leftArm: "P005", legs: "P015" }, // Example: Rifle, Shotgun, Claw, Trap
+            { head: "P008", rightArm: "P006", leftArm: "P018", legs: "P019" }, // Example: Guard, Sword, Repair, Plant
+            { head: "P011", rightArm: "P012", leftArm: "P014", legs: "P026" }, // Example: Hit Down, Evade Down, Virus, Leg Guard
+            { head: "P016", rightArm: "P017", leftArm: "P009", legs: "P010" }, // Example: Hit Up, Evade Up, Counter, Full Guard
+            { head: "P013", rightArm: "P020", leftArm: "P022", legs: "P015" }  // Example: Bug, Anti-Sea, Pile, Trap
         ];
-        Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig], teamIndex) => {
-            for (let i = 0; i < CONFIG.PLAYERS_PER_TEAM; i++) {
-                const medarotIdNumber = teamIndex * CONFIG.PLAYERS_PER_TEAM + i + 1;
+        Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig], teamIndex) => { // teamConfig access is fine
+            for (let i = 0; i < CONFIG.RULES.PLAYERS_PER_TEAM; i++) { // Updated path
+                const medarotIdNumber = teamIndex * CONFIG.RULES.PLAYERS_PER_TEAM + i + 1; // Updated path
                 const medarotDisplayId = `p${medarotIdNumber}`;
-                let medarotPartsConfig; let selectedMedalDataForCurrentMedarot;
-                if (teamIndex === 0 && i === 0) {
-                    console.log(`Attempting to equip METABEE_SET for Medarot ${medarotDisplayId}`);
-                    const targetSetId = "METABEE_SET"; const targetPartIdInSet = "P001";
-                    const partsConfigForSet = {}; let setComplete = true;
-                    const slotsToEquip = ['head', 'rightArm', 'leftArm', 'legs'];
-                    for (const slot of slotsToEquip) {
-                        if (this.partsData[slot] && Array.isArray(this.partsData[slot])) {
-                            const part = this.partsData[slot].find(p => p.set_id === targetSetId && p.id === targetPartIdInSet);
-                            if (part) partsConfigForSet[slot] = part.id;
-                            else { setComplete = false; console.warn(`Part not found for METABEE_SET: slot ${slot}, set_id ${targetSetId}, part_id ${targetPartIdInSet}`); break; }
-                        } else { setComplete = false; console.warn(`Parts data for slot ${slot} is missing or not an array.`); break; }
-                    }
-                    if (setComplete) {
-                        medarotPartsConfig = partsConfigForSet;
-                        selectedMedalDataForCurrentMedarot = this.medalsData.find(m => m.id === "M001");
-                        if (!selectedMedalDataForCurrentMedarot) {
-                            console.warn("METABEE_SET's conventional medal (M001) not found. Falling back to default medal selection for p1.");
-                            const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
-                            selectedMedalDataForCurrentMedarot = this.medalsData[medalIndex];
-                        }
-                    } else {
-                        console.warn(`METABEE_SET for ${medarotDisplayId} is incomplete. Falling back to default loadout for p1.`);
-                        const loadoutIndex = 0; // Fallback to first default loadout
-                        medarotPartsConfig = defaultLoadouts[loadoutIndex];
-                        const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
-                        selectedMedalDataForCurrentMedarot = this.medalsData[medalIndex];
-                    }
+                let medarotPartsConfig;
+                let selectedMedalDataForCurrentMedarot;
+
+                const currentTeamBaseSpeed = teamId === 'team1' ? CONFIG.RULES.TEAM1_BASE_SPEED : CONFIG.RULES.TEAM2_BASE_SPEED;
+
+                // Simplified loadout and medal selection for now, can be expanded later
+                const loadoutIndex = (teamIndex * CONFIG.RULES.PLAYERS_PER_TEAM + i) % defaultLoadouts.length;
+                medarotPartsConfig = defaultLoadouts[loadoutIndex];
+
+                const medalIndex = (teamIndex * CONFIG.RULES.PLAYERS_PER_TEAM + i) % this.medalsData.length;
+                if (this.medalsData.length > 0) {
+                    selectedMedalDataForCurrentMedarot = this.medalsData[medalIndex];
                 } else {
-                    const loadoutIndex = teamIndex * CONFIG.PLAYERS_PER_TEAM + i;
-                    medarotPartsConfig = defaultLoadouts[loadoutIndex % defaultLoadouts.length];
-                    const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
-                    selectedMedalDataForCurrentMedarot = this.medalsData.length > 0 ? this.medalsData[medalIndex % this.medalsData.length] : null;
+                    selectedMedalDataForCurrentMedarot = null; // Handle case with no medals loaded
                 }
+
                 let medalForMedarot;
-                if (selectedMedalDataForCurrentMedarot) medalForMedarot = new Medal(selectedMedalDataForCurrentMedarot);
+                if (selectedMedalDataForCurrentMedarot) {
+                    medalForMedarot = new Medal(selectedMedalDataForCurrentMedarot);
+                }
                 else {
                     console.warn(`No medal data found for Medarot ${medarotDisplayId}. Using a default fallback medal.`);
                     medalForMedarot = new Medal({ id: 'M_FALLBACK', name_jp: 'フォールバックメダル', personality_jp: 'ランダムターゲット', medaforce_jp: 'なし', attribute_jp: '無', skill_shoot: '1', skill_fight: '1', skill_scan: '1', skill_support: '1' });
                 }
-                this.medarots.push(new Medarot( medarotDisplayId, `Medarot ${medarotIdNumber}`, teamId, teamConfig.baseSpeed + (Math.random() * 0.2), medalForMedarot, { isLeader: i === 0, color: teamConfig.color }, medarotPartsConfig,  this.partsData ));
+                    this.medarots.push(new Medarot(
+                        medarotDisplayId, `Medarot ${medarotIdNumber}`, teamId,
+                        currentTeamBaseSpeed + (Math.random() * 0.2),
+                        medalForMedarot, { isLeader: i === 0, color: teamConfig.color },
+                        medarotPartsConfig, this.partsData // Pass the flat array of all parts
+                    ));
             }
         });
     }
 
     setupUI() {
         this.dom.battlefield.innerHTML = '<div class="center-line"></div>';
-        Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig]) => {
+        // Set CSS variables for execute lines
+        this.dom.battlefield.style.setProperty('--team1-execute-x', CONFIG.UI.TEAM1_EXECUTE_X * 100);
+        this.dom.battlefield.style.setProperty('--team2-execute-x', CONFIG.UI.TEAM2_EXECUTE_X * 100);
+
+        Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig]) => { // TEAMS access fine
             const panel = document.getElementById(`${teamId}InfoPanel`);
             panel.innerHTML = `<h2 class="text-xl font-bold mb-3 ${teamConfig.textColor}">${teamConfig.name}</h2>`;
         });
         this.medarots.forEach(medarot => {
             const idNum = parseInt(medarot.id.substring(1));
-            const indexInTeam = (idNum - 1) % CONFIG.PLAYERS_PER_TEAM;
+            const indexInTeam = (idNum - 1) % CONFIG.RULES.PLAYERS_PER_TEAM; // Updated path
             const vPos = 25 + indexInTeam * 25;
             this.dom.battlefield.appendChild(medarot.createIconDOM(vPos));
             const panel = document.getElementById(`${medarot.team}InfoPanel`);
@@ -560,14 +564,17 @@ class GameManager {
     start() {
         if (this.phase !== 'IDLE') return;
         this.phase = 'INITIAL_SELECTION';
-        this.medarots.forEach(m => { m.gauge = CONFIG.MAX_GAUGE; m.state = 'ready_select'; m.updateDisplay(); });
+        this.medarots.forEach(m => { m.gauge = CONFIG.RULES.MAX_GAUGE; m.state = 'ready_select'; m.updateDisplay(); }); // Updated path
         this.dom.startButton.disabled = true; this.dom.startButton.textContent = "シミュレーション実行中...";
         this.dom.resetButton.style.display = "inline-block";
         this.resumeSimulation();
     }
 
     pauseSimulation() { clearInterval(this.simulationInterval); this.simulationInterval = null; }
-    resumeSimulation() { if (this.simulationInterval) return; this.simulationInterval = setInterval(() => this.gameLoop(), CONFIG.UPDATE_INTERVAL); }
+    resumeSimulation() {
+        if (this.simulationInterval) return;
+        this.simulationInterval = setInterval(() => this.gameLoop(), CONFIG.RULES.UPDATE_INTERVAL); // Updated path
+    }
 
     reset() {
         this.pauseSimulation();
@@ -600,17 +607,17 @@ class GameManager {
         if (medarot.team === 'team2') {
             const availableAttackPartsKeys = medarot.getAvailableAttackParts();
             if (availableAttackPartsKeys.length === 0) {
-                medarot.state = 'broken'; // Or some other state indicating no actions
+                medarot.state = 'broken';
                 medarot.currentTargetedEnemy = null; medarot.currentTargetedPartKey = null;
                 return;
             }
-            const partKey = availableAttackPartsKeys[Math.floor(Math.random() * availableAttackPartsKeys.length)]; // Pick random available part
+            const partKey = availableAttackPartsKeys[Math.floor(Math.random() * availableAttackPartsKeys.length)];
             const attackingPartForCPU = medarot.parts[partKey];
 
             let initialTargetForCPU = null;
             if (attackingPartForCPU && attackingPartForCPU.category_jp === '格闘') {
                 initialTargetForCPU = this.findEnemyTarget(medarot, 'Fight');
-            } else if (attackingPartForCPU) { // For shooting or other targeted actions
+            } else if (attackingPartForCPU) {
                 initialTargetForCPU = this.findEnemyTarget(medarot, attackingPartForCPU.sub_category_jp);
             }
 
@@ -618,9 +625,7 @@ class GameManager {
                 medarot.selectAction(partKey);
                 if (attackingPartForCPU.category_jp === '射撃' && medarot.medal && medarot.medal.personality === 'ランダムターゲット') {
                     if (initialTargetForCPU.state !== 'broken') {
-                        const availablePartsCPU = Object.entries(initialTargetForCPU.parts)
-                                                  .filter(([pK, pV]) => pV && !pV.isBroken)
-                                                  .map(([pK, _]) => pK);
+                        const availablePartsCPU = Object.entries(initialTargetForCPU.parts).filter(([pK, pV]) => pV && !pV.isBroken).map(([pK, _]) => pK);
                         if (availablePartsCPU.length > 0) {
                             const randomPartKeyCPU = availablePartsCPU[Math.floor(Math.random() * availablePartsCPU.length)];
                             medarot.currentTargetedEnemy = initialTargetForCPU;
@@ -636,7 +641,7 @@ class GameManager {
                     }
                 }
             } else {
-                medarot.state = 'broken'; // Or some other non-action state like 'idle_charging' after cooldown
+                medarot.state = 'broken';
                 medarot.currentTargetedEnemy = null;
                 medarot.currentTargetedPartKey = null;
                 console.log(`${medarot.name} (CPU) could not find a target or part. State set to broken/idle.`);
@@ -662,7 +667,7 @@ class GameManager {
         if (actionType === 'Fight') {
             enemiesWithDistance.sort((a, b) => a.distance - b.distance);
             return enemiesWithDistance[0].medarot;
-        } else if (actionType === 'Shoot' || actionType === '狙い撃ち' || actionType === '撃つ') { // Consider sub-categories for shooting
+        } else if (actionType === 'Shoot' || actionType === '狙い撃ち' || actionType === '撃つ') {
             enemiesWithDistance.sort((a, b) => b.distance - a.distance);
             return enemiesWithDistance[0].medarot;
         } else {
@@ -688,37 +693,34 @@ class GameManager {
                         attacker.pendingTargetPartKey = randomPartKeyOnEnemy;
                         console.log(`${attacker.name} (Player) pending target: ${randomEnemy.name}'s ${randomPartKeyOnEnemy} with ${selectedPartInfo.name_jp}`);
 
-                        if (this.dom.aimingArrow) this.drawArrow(attacker, attacker.pendingTargetEnemy); // Draw arrow
+                        if (this.dom.aimingArrow) this.drawArrow(attacker, attacker.pendingTargetEnemy);
                         this.dom.modalTitle.textContent = 'ターゲット確認';
                         this.dom.modalActorName.textContent = `${attacker.name}の${selectedPartInfo.name_jp}。ターゲット: ${attacker.pendingTargetEnemy.name}${attacker.pendingTargetPartKey ? 'の' + attacker.pendingTargetEnemy.parts[attacker.pendingTargetPartKey].name_jp : ''}`;
                         this.dom.partSelectionContainer.style.display = 'none';
                         this.dom.modalExecuteAttackButton.style.display = 'inline-block';
                         this.dom.modalCancelActionButton.style.display = 'inline-block';
-                        return; // Wait for player confirmation
+                        return;
                     } else {
                         attacker.pendingTargetEnemy = null; attacker.pendingTargetPartKey = null;
                         console.log(`${attacker.name} (Player) found enemy ${randomEnemy.name} but it has no targetable parts.`);
                         if (this.dom.aimingArrow) this.clearArrow();
-                         // Stay in part selection, allow re-selection or show message
                         this.dom.modalActorName.textContent = `${randomEnemy.name}には狙えるパーツがありません。別の行動を選択してください。`;
-                        // Ensure part selection buttons are visible
                         this.dom.partSelectionContainer.style.display = 'flex';
                         this.dom.modalExecuteAttackButton.style.display = 'none';
                         this.dom.modalCancelActionButton.style.display = 'none';
-                        return; // Stay in modal
+                        return;
                     }
                 } else {
                     attacker.pendingTargetEnemy = null; attacker.pendingTargetPartKey = null;
                     console.log(`${attacker.name} (Player) found no enemies to target.`);
                     if (this.dom.aimingArrow) this.clearArrow();
                     this.dom.modalActorName.textContent = '狙える敵がいません。';
-                     // Ensure part selection buttons are visible
                     this.dom.partSelectionContainer.style.display = 'flex';
                     this.dom.modalExecuteAttackButton.style.display = 'none';
                     this.dom.modalCancelActionButton.style.display = 'none';
-                    return; // Stay in modal
+                    return;
                 }
-            } else { // Not shooting or not random target personality
+            } else {
                 this.activeMedarot = null;
                 this.hideModal();
                 this.resumeSimulation();
@@ -733,17 +735,15 @@ class GameManager {
     handleModalExecuteAttack() {
         if (!this.activeMedarot || !this.activeMedarot.pendingTargetEnemy) {
             console.warn("ExecuteAttack called without activeMedarot or pending target.");
-            this.hideModal(); // Also clears arrow
+            this.hideModal();
             return;
         }
         const attacker = this.activeMedarot;
         attacker.currentTargetedEnemy = attacker.pendingTargetEnemy;
         attacker.currentTargetedPartKey = attacker.pendingTargetPartKey;
-
         attacker.pendingTargetEnemy = null;
         attacker.pendingTargetPartKey = null;
-
-        this.clearArrow(); // Clear arrow after execution is confirmed
+        this.clearArrow();
         this.activeMedarot = null;
         this.hideModal();
         this.resumeSimulation();
@@ -753,12 +753,10 @@ class GameManager {
         if (this.activeMedarot) {
             this.activeMedarot.pendingTargetEnemy = null;
             this.activeMedarot.pendingTargetPartKey = null;
-            // Also clear currentTargetedEnemy and currentTargetedPartKey as the action selection is being revised
             this.activeMedarot.currentTargetedEnemy = null;
             this.activeMedarot.currentTargetedPartKey = null;
         }
         if (this.dom.aimingArrow) this.clearArrow();
-
         this.dom.modalExecuteAttackButton.style.display = 'none';
         this.dom.modalCancelActionButton.style.display = 'none';
         this.dom.partSelectionContainer.style.display = 'flex';
@@ -857,7 +855,7 @@ class GameManager {
         medarot.preparedAttack = {
             target: targetEnemyMedarot,
             partKey: targetPartKeyForAttack,
-            damage: CONFIG.BASE_DAMAGE
+            damage: CONFIG.RULES.BASE_DAMAGE // Updated path
         };
         this.showModal('execution', medarot);
     }
@@ -918,6 +916,7 @@ class GameManager {
                 this.dom.battleStartConfirmButton.style.display = 'inline-block';
                 break;
             case 'game_over':
+                // TEAMS access is fine
                 title.textContent = `${CONFIG.TEAMS[data.winningTeam].name} の勝利！`;
                 actorName.textContent = 'ロボトル終了！';
                 this.dom.modalConfirmButton.style.display = 'inline-block';
@@ -929,7 +928,7 @@ class GameManager {
     }
 
     hideModal() {
-        if (this.dom.aimingArrow) this.clearArrow(); // Clear arrow when modal hides
+        if (this.dom.aimingArrow) this.clearArrow();
         this.dom.modal.classList.add('hidden');
     }
 
@@ -965,5 +964,4 @@ class GameManager {
 
 document.addEventListener('DOMContentLoaded', async () => {
     const game = new GameManager();
-    await game.init();
-});
+    await game.init(); });

@@ -1,7 +1,0 @@
-id,set_id,name_jp,category_jp,sub_category_jp,base_hp,charge,cooldown
-P001,METABEE_SET,ハンマー,格闘,殴る,55,70,90
-P002,ROKUSHO_SET,カウンター,防御,反射,40,100,130
-P003,NONE,クロー,格闘,我武者羅,50,65,85
-P004,NONE,ウイルス,妨害,侵食,35,90,110
-P005,NONE,リペア,支援,修理,45,70,90
-P006,NONE,パイル,格闘,我武者羅,58,68,88
