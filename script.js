@@ -10,8 +10,8 @@ const CONFIG = {
         team1: { name: 'Team 1', color: '#63b3ed', baseSpeed: 1.0, textColor: 'text-blue-300' },
         team2: { name: 'Team 2', color: '#f56565', baseSpeed: 0.9, textColor: 'text-red-300' }
     },
-    TEAM1_EXECUTE_X: 0.40,
-    TEAM2_EXECUTE_X: 0.60,
+    TEAM1_EXECUTE_X: 0.45, // Changed from 0.40
+    TEAM2_EXECUTE_X: 0.55, // Changed from 0.60
     TEAM1_HOME_X: 0.0,
     TEAM2_HOME_X: 1.0
 };

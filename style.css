@@ -213,8 +213,28 @@ body {
     left: 50%;
     top: 0;
     bottom: 0;
-    width: 4px !important; /* Increased width, added !important */
+    width: 8px !important; /* Increased width to 8px */
     background-color: #718096 !important; /* New color, added !important */
     transform: translateX(-50%) !important; /* Centers the div, added !important */
     z-index: 0 !important; /* Ensure it's visible on battlefield, but behind icons if they have z-index > 0 */
+}
+
+/* --- Execute Lines --- */
+.execute-line {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px; /* Thickness of the line */
+    background-color: rgba(255, 255, 0, 0.5); /* Yellowish, semi-transparent */
+    z-index: 1; /* Above center line, below icons */
+}
+
+#team1-execute-line {
+    left: calc(var(--team1-execute-x, 45) * 1%); /* Set by JS via CSS variable */
+    transform: translateX(-50%);
+}
+
+#team2-execute-line {
+    left: calc(var(--team2-execute-x, 55) * 1%); /* Set by JS via CSS variable */
+    transform: translateX(-50%);
 }
