@@ -97,25 +97,28 @@ class Medarot {
         const slots = ['head', 'rightArm', 'leftArm', 'legs'];
         slots.forEach(slotKey => {
             const partId = this.partsConfig ? this.partsConfig[slotKey] : null;
-            let partData = null;
+            let partDataFound = false; // Flag to see if we successfully assigned a part
 
             if (partId && this.allPartsData && this.allPartsData[slotKey] && Array.isArray(this.allPartsData[slotKey])) {
-                partData = this.allPartsData[slotKey].find(p => p.id === partId);
-            }
-
-            if (partData) {
-                this.parts[slotKey] = {
-                    id: partData.id,
+                const partData = this.allPartsData[slotKey].find(p => p.id === partId);
+                if (partData) {
+                    this.parts[slotKey] = {
+                        id: partData.id,
                         name_jp: partData.name_jp,
+                        // For non-leg parts, category_jp and sub_category_jp should exist.
+                        // For leg parts, these will be undefined, which is acceptable as they are not used for legs.
                         category_jp: partData.category_jp,
                         sub_category_jp: partData.sub_category_jp,
-                        slot: slotKey, // or partData.slot, ensure consistency
+                        slot: slotKey,
                         hp: parseInt(partData.base_hp) || CONFIG.PART_HP_BASE,
                         maxHp: parseInt(partData.base_hp) || CONFIG.PART_HP_BASE,
+                        // For non-leg parts, charge and cooldown should exist.
+                        // For leg parts, these will be undefined; parseInt(undefined) is NaN, so || 0 handles it.
                         charge: parseInt(partData.charge) || 0,
                         cooldown: parseInt(partData.cooldown) || 0,
                         isBroken: false
                     };
+
                     if (slotKey === 'legs') {
                         this.parts[slotKey].hp += CONFIG.LEGS_HP_BONUS;
                         this.parts[slotKey].maxHp += CONFIG.LEGS_HP_BONUS;
@@ -126,13 +129,28 @@ class Medarot {
                         this.legPropulsion = parseInt(partData.propulsion) || 0;
                         this.legDefenseParam = parseInt(partData.defense_param) || 0;
                     }
+                    partDataFound = true;
                 } else {
-                    console.warn(`Part ID ${partId} for slot ${slotKey} not found in partsData. Equipping default.`);
-                    this.parts[slotKey] = { ...defaultPartStructure, name_jp: `未定義 (${partId})`, slot: slotKey };
+                    console.warn(`Part ID '${partId}' for slot '${slotKey}' not found in loaded parts data. Equipping default.`);
                 }
             } else {
-                console.warn(`No part configured for slot ${slotKey} or missing partsData. Equipping default.`);
-                this.parts[slotKey] = { ...defaultPartStructure, slot: slotKey };
+                if (partId) { // Only warn about missing slot data if a partId was expected
+                    console.warn(`Parts data for slot '${slotKey}' missing or invalid, or partId '${partId}' configured but data structure issue. Equipping default.`);
+                } else {
+                    // This case means no partId was specified for the slot in partsConfig.
+                    // console.log(`No part configured for slot '${slotKey}'. Equipping default.`); // Less of a warning
+                }
+            }
+
+            if (!partDataFound) {
+                this.parts[slotKey] = { ...defaultPartStructure, name_jp: `パーツ無 (${partId || '未指定'})`, slot: slotKey };
+                if (slotKey === 'legs') { // Reset leg stats if default part is equipped for legs
+                    this.legMovementType = null;
+                    this.legAccuracy = 0;
+                    this.legMobility = 0;
+                    this.legPropulsion = 0;
+                    this.legDefenseParam = 0;
+                }
             }
         });
     }
