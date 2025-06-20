@@ -202,3 +202,7 @@ body {
     /* For example, if it needs more width: */
     /* width: 220px; */ /* Original might be smaller */
 }
+
+#aiming-arrow {
+    z-index: 100; /* Ensure it's above battlefield but below modal if modal is higher */
+}
