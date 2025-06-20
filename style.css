@@ -206,3 +206,15 @@ body {
 #aiming-arrow {
     z-index: 100; /* Ensure it's above battlefield but below modal if modal is higher */
 }
+
+/* === Jules: Force .center-line style update === */
+.center-line {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    bottom: 0;
+    width: 4px !important; /* Increased width, added !important */
+    background-color: #718096 !important; /* New color, added !important */
+    transform: translateX(-50%) !important; /* Centers the div, added !important */
+    z-index: -1 !important; /* Ensure it's behind Medarot icons, added !important */
+}
