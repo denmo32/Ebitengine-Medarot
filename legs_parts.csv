@@ -1,0 +1,8 @@
+id,set_id,name_jp,base_hp,movement_type_jp,accuracy,mobility,propulsion,defense_param
+P001,METABEE_SET,レッグガードA,65,二脚,70,60,50,10
+P002,ROKUSHO_SET,レッグガードB,65,二脚,65,70,55,8
+P003,NONE,トラップウィール,50,車両,50,50,70,5
+P004,NONE,エアタンク,45,飛行,60,80,60,3
+P005,NONE,プロテクターシェル,70,戦車,40,30,40,15
+P006,SPIDER_SET,スパイダーレッグ,55,多脚,75,65,50,7
+P007,AQUA_SET,アクアモーター,50,潜水,55,55,65,6
