@@ -216,5 +216,5 @@ body {
     width: 4px !important; /* Increased width, added !important */
     background-color: #718096 !important; /* New color, added !important */
     transform: translateX(-50%) !important; /* Centers the div, added !important */
-    z-index: -1 !important; /* Ensure it's behind Medarot icons, added !important */
+    z-index: 0 !important; /* Ensure it's visible on battlefield, but behind icons if they have z-index > 0 */
 }
