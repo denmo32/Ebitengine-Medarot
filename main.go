@@ -1,15 +1,48 @@
 package main
 
 import (
+	"bytes" // Required for bytes.Reader
+	_ "embed" // Required for go:embed
 	"log"
 	"math/rand"
 	"os" // 追加
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
+	"golang.org/x/image/font"
+	"golang.org/x/image/font/opentype"
 )
 
+//go:embed mplus-1p-regular.ttf
+var mplusFontData []byte
+
+var MplusFont font.Face // This will be accessed by game.go
+
+func loadFont() error {
+	tt, err := opentype.Parse(mplusFontData)
+	if err != nil {
+		return err
+	}
+	const dpi = 72
+	// Adjust font size as needed, 12 might be too small/large depending on new resolution
+	MplusFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
+		Size:    10, // Changed from 12 to 10
+		DPI:     dpi,
+		Hinting: font.HintingFull,
+	})
+	if err != nil {
+		return err
+	}
+	log.Println("Custom font loaded successfully.")
+	return nil
+}
+
 func main() {
+	// Load font first
+	if err := loadFont(); err != nil {
+		log.Fatalf("フォントの読み込みに失敗しました: %v", err)
+	}
+
 	// Seed the random number generator
 	rand.Seed(time.Now().UnixNano())
 
