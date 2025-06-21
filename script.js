@@ -551,7 +551,11 @@ class GameManager {
     }
 
     setupUI() {
-        this.dom.battlefield.innerHTML = '<div class="center-line"></div>';
+        this.dom.battlefield.innerHTML = `
+            <div class="center-line"></div>
+            <div id="team1-execute-line" class="execute-line"></div>
+            <div id="team2-execute-line" class="execute-line"></div>
+        `;
         Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig]) => {
             const panel = document.getElementById(`${teamId}InfoPanel`);
             panel.innerHTML = `<h2 class="text-xl font-bold mb-3 ${teamConfig.textColor}">${teamConfig.name}</h2>`;
