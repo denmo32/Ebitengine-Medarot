@@ -1,32 +1,19 @@
 // 1. 中央集権的な設定 (Centralized configuration)
 const CONFIG = {
-    UI: { // New sub-object for UI related constants
-        TEAM1_EXECUTE_X: 0.45,
-        TEAM2_EXECUTE_X: 0.55,
-        TEAM1_HOME_X: 0.0,
-        TEAM2_HOME_X: 1.0,
-        // New UI constants for icon positioning
-        MEDAROT_ICON_VERTICAL_INITIAL_OFFSET: 25,
-        MEDAROT_ICON_VERTICAL_SPACING: 25
+    MAX_GAUGE: 100,
+    UPDATE_INTERVAL: 50,
+    PLAYERS_PER_TEAM: 3,
+    PART_HP_BASE: 50,
+    LEGS_HP_BONUS: 10,
+    BASE_DAMAGE: 20,
+    TEAMS: {
+        team1: { name: 'Team 1', color: '#63b3ed', baseSpeed: 1.0, textColor: 'text-blue-300' },
+        team2: { name: 'Team 2', color: '#f56565', baseSpeed: 0.9, textColor: 'text-red-300' }
     },
-    RULES: { // New sub-object for game rules and balance
-        MAX_GAUGE: 100,
-        UPDATE_INTERVAL: 50,
-        PLAYERS_PER_TEAM: 3,
-        PART_HP_BASE: 50,
-        LEGS_HP_BONUS: 10,
-        BASE_DAMAGE: 20,
-        TEAM1_BASE_SPEED: 1.0, // Moved and renamed from TEAMS.team1.baseSpeed
-        TEAM2_BASE_SPEED: 0.9,  // Moved and renamed from TEAMS.team2.baseSpeed
-        // New RULES constants for game logic
-        MINIMUM_DAMAGE: 1,
-        PROPULSION_BONUS_FACTOR: 0.05,
-        SPEED_RANDOM_FACTOR: 0.2
-    },
-    TEAMS: { // TEAMS now only contains display/theming info
-        team1: { name: 'Team 1', color: '#63b3ed', textColor: 'text-blue-300' },
-        team2: { name: 'Team 2', color: '#f56565', textColor: 'text-red-300' }
-    }
+    TEAM1_EXECUTE_X: 0.45,
+    TEAM2_EXECUTE_X: 0.55,
+    TEAM1_HOME_X: 0.0,
+    TEAM2_HOME_X: 1.0
 };
 
 // メダルクラス (Medal Class)
@@ -108,16 +95,16 @@ class Medarot {
                         category_jp: partData.category_jp,
                         sub_category_jp: partData.sub_category_jp,
                         slot: slotKey,
-                        hp: parseInt(partData.base_hp) || CONFIG.RULES.PART_HP_BASE,
-                        maxHp: parseInt(partData.base_hp) || CONFIG.RULES.PART_HP_BASE,
+                        hp: parseInt(partData.base_hp) || CONFIG.PART_HP_BASE,
+                        maxHp: parseInt(partData.base_hp) || CONFIG.PART_HP_BASE,
                         charge: parseInt(partData.charge) || 0,
                         cooldown: parseInt(partData.cooldown) || 0,
                         isBroken: false
                     };
 
                     if (slotKey === 'legs') {
-                        this.parts[slotKey].hp += CONFIG.RULES.LEGS_HP_BONUS;
-                        this.parts[slotKey].maxHp += CONFIG.RULES.LEGS_HP_BONUS;
+                        this.parts[slotKey].hp += CONFIG.LEGS_HP_BONUS;
+                        this.parts[slotKey].maxHp += CONFIG.LEGS_HP_BONUS;
                         this.legMovementType = partData.movement_type_jp;
                         this.legAccuracy = parseInt(partData.accuracy) || 0;
                         this.legMobility = parseInt(partData.mobility) || 0;
@@ -194,7 +181,7 @@ class Medarot {
 
         let effectiveDamage = damage;
         if (this.legDefenseParam && this.legDefenseParam > 0) {
-            effectiveDamage = Math.max(CONFIG.RULES.MINIMUM_DAMAGE, damage - (this.legDefenseParam || 0));
+            effectiveDamage = Math.max(1, damage - (this.legDefenseParam || 0));
         }
         part.hp = Math.max(0, part.hp - effectiveDamage);
 
@@ -215,12 +202,12 @@ class Medarot {
         if (statesToPause.includes(this.state)) return;
 
         const baseChargeRate = this.speed;
-        const propulsionBonus = (this.legPropulsion || 0) * CONFIG.RULES.PROPULSION_BONUS_FACTOR;
+        const propulsionBonus = (this.legPropulsion || 0) * 0.05;
         this.gauge += baseChargeRate + propulsionBonus;
 
         if (this.state === 'idle_charging') {
-            if (this.gauge >= CONFIG.RULES.MAX_GAUGE) {
-                this.gauge = CONFIG.RULES.MAX_GAUGE;
+            if (this.gauge >= CONFIG.MAX_GAUGE) {
+                this.gauge = CONFIG.MAX_GAUGE;
                 this.state = 'ready_select';
             }
         } else if (this.state === 'action_charging') {
@@ -277,8 +264,8 @@ class Medarot {
 
         const partSlotNamesJP = { head: '頭部', rightArm: '右腕', leftArm: '左腕', legs: '脚部' };
         let partsHTML = '';
-        Object.keys(this.parts).forEach(key => {
-             if(!this.parts[key]) {
+        Object.keys(this.parts).forEach(key => { // Ensure this.parts is populated before this is called
+             if(!this.parts[key]) { // Add safety check
                 console.warn(`[DEBUG] createInfoPanelDOM for ${this.id}: Part data for key '${key}' is missing.`);
                 partsHTML += `<div class="part-info-wrapper" id="${this.id}-${key}-wrapper">Part data missing</div>`;
                 return;
@@ -298,20 +285,22 @@ class Medarot {
 
         info.innerHTML = `
             <div class="player-name ${teamConfig.textColor}">${this.name} ${this.isLeader ? '(L)' : ''}</div>
-            <div class="parts-container">${partsHTML}</div>
+            <div class.parts-container">${partsHTML}</div>
         `;
 
         Object.entries(this.parts).forEach(([key, part]) => {
+            // Add safety check for part existence again, as querySelector might fail if partsHTML had issues
             if(!part) return;
+
             const wrapperElement = info.querySelector(`#${this.id}-${key}-wrapper`);
             const nameDisplayElement = info.querySelector(`#${this.id}-${key}-name`);
             const barElement = info.querySelector(`#${this.id}-${key}-bar`);
             const numericHpElement = info.querySelector(`#${this.id}-${key}-hp-numeric`);
 
-            if (nameDisplayElement) {
+            if (nameDisplayElement) { // Check if element exists
                  nameDisplayElement.textContent = `${partSlotNamesJP[key] || key}: ${part.name_jp || 'N/A'}`;
             }
-            if (numericHpElement) {
+            if (numericHpElement) { // Check if element exists
                 numericHpElement.textContent = `(${part.hp}/${part.maxHp})`;
             }
 
@@ -337,11 +326,11 @@ class Medarot {
         console.log(`[DEBUG] updatePosition for ${this.id} (Team: ${this.team}, State: ${this.state}, Gauge: ${this.gauge})`);
 
         if (!this.loggedConfigPositions && (this.id === 'p1' || this.id === 'p4')) {
-            console.log(`[DEBUG] CONFIG relevant for positioning: T1_HOME_X=${CONFIG.UI.TEAM1_HOME_X}, T1_EXEC_X=${CONFIG.UI.TEAM1_EXECUTE_X}, T2_HOME_X=${CONFIG.UI.TEAM2_HOME_X}, T2_EXEC_X=${CONFIG.UI.TEAM2_EXECUTE_X}`);
+            console.log(`[DEBUG] CONFIG relevant for positioning: T1_HOME_X=${CONFIG.TEAM1_HOME_X}, T1_EXEC_X=${CONFIG.TEAM1_EXECUTE_X}, T2_HOME_X=${CONFIG.TEAM2_HOME_X}, T2_EXEC_X=${CONFIG.TEAM2_EXECUTE_X}`);
             this.loggedConfigPositions = true;
         }
 
-        let currentMaxGauge = CONFIG.RULES.MAX_GAUGE;
+        let currentMaxGauge = CONFIG.MAX_GAUGE;
         if (this.state === 'action_charging' && this.currentActionCharge != null) {
             currentMaxGauge = this.currentActionCharge;
         } else if (this.state === 'action_cooldown' && this.currentActionCooldown != null) {
@@ -361,41 +350,41 @@ class Medarot {
         switch (this.state) {
             case 'action_charging':
                 if (this.team === 'team1') {
-                    positionXRatio = CONFIG.UI.TEAM1_HOME_X + progress * (CONFIG.UI.TEAM1_EXECUTE_X - CONFIG.UI.TEAM1_HOME_X);
+                    positionXRatio = CONFIG.TEAM1_HOME_X + progress * (CONFIG.TEAM1_EXECUTE_X - CONFIG.TEAM1_HOME_X);
                 } else {
-                    positionXRatio = CONFIG.UI.TEAM2_HOME_X - progress * (CONFIG.UI.TEAM2_HOME_X - CONFIG.UI.TEAM2_EXECUTE_X);
+                    positionXRatio = CONFIG.TEAM2_HOME_X - progress * (CONFIG.TEAM2_HOME_X - CONFIG.TEAM2_EXECUTE_X);
                 }
                 break;
             case 'idle_charging':
             case 'action_cooldown':
                 if (this.team === 'team1') {
-                    positionXRatio = CONFIG.UI.TEAM1_EXECUTE_X - progress * (CONFIG.UI.TEAM1_EXECUTE_X - CONFIG.UI.TEAM1_HOME_X);
+                    positionXRatio = CONFIG.TEAM1_EXECUTE_X - progress * (CONFIG.TEAM1_EXECUTE_X - CONFIG.TEAM1_HOME_X);
                 } else {
-                    positionXRatio = CONFIG.UI.TEAM2_EXECUTE_X + progress * (CONFIG.UI.TEAM2_HOME_X - CONFIG.UI.TEAM2_EXECUTE_X);
+                    positionXRatio = CONFIG.TEAM2_EXECUTE_X + progress * (CONFIG.TEAM2_HOME_X - CONFIG.TEAM2_EXECUTE_X);
                 }
                 break;
             case 'ready_execute':
-                positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_EXECUTE_X : CONFIG.UI.TEAM2_EXECUTE_X;
+                positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_EXECUTE_X : CONFIG.TEAM2_EXECUTE_X;
                 break;
             case 'ready_select':
-                positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_HOME_X : CONFIG.UI.TEAM2_HOME_X;
+                positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_HOME_X : CONFIG.TEAM2_HOME_X;
                 break;
             case 'broken':
                 if (this.iconElement.style.left && this.iconElement.style.left !== '') {
                     positionXRatio = parseFloat(this.iconElement.style.left) / 100;
                 } else {
-                    positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_HOME_X : CONFIG.UI.TEAM2_HOME_X;
+                    positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_HOME_X : CONFIG.TEAM2_HOME_X;
                 }
                 break;
             default:
                 console.warn(`[DEBUG] Unknown state for ${this.id}: ${this.state}. Defaulting to home position.`);
-                positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_HOME_X : CONFIG.UI.TEAM2_HOME_X;
+                positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_HOME_X : CONFIG.TEAM2_HOME_X;
                 break;
         }
 
         if (typeof positionXRatio !== 'number' || isNaN(positionXRatio)) {
             console.error(`[DEBUG] Invalid positionXRatio calculated for ${this.id}: ${positionXRatio}. Defaulting to home.`);
-            positionXRatio = (this.team === 'team1') ? CONFIG.UI.TEAM1_HOME_X : CONFIG.UI.TEAM2_HOME_X;
+            positionXRatio = (this.team === 'team1') ? CONFIG.TEAM1_HOME_X : CONFIG.TEAM2_HOME_X;
         }
 
         console.log(`[DEBUG] For ${this.id} (State: ${this.state}), calculated positionXRatio: ${positionXRatio.toFixed(3)}`);
@@ -409,11 +398,13 @@ class Medarot {
     updateInfoPanel() {
         Object.entries(this.parts).forEach(([key, part]) => {
             const elements = this.partDOMElements[key];
-            if (!elements || !elements.bar || !elements.numericHp || !elements.wrapper) return;
+            if (!elements || !elements.bar || !elements.numericHp || !elements.wrapper) return; // Safety check
+            // Further safety: ensure part itself is valid and has hp/maxHp
             if (!part || typeof part.hp !== 'number' || typeof part.maxHp !== 'number' || part.maxHp === 0) {
+                 // Handle case where part might be missing or maxHp is 0 to avoid division by zero
                 elements.bar.style.width = '0%';
                 elements.numericHp.textContent = `(ERR/ERR)`;
-                elements.wrapper.classList.toggle('broken', true);
+                elements.wrapper.classList.toggle('broken', true); // Mark as broken if data is problematic
                 if(elements.bar) elements.bar.style.backgroundColor = '#4a5568';
                 return;
             }
@@ -508,12 +499,12 @@ class GameManager {
             { head: "P005", rightArm: "P006", leftArm: "P006", legs: "P007" }
         ];
         Object.entries(CONFIG.TEAMS).forEach(([teamId, teamConfig], teamIndex) => {
-            for (let i = 0; i < CONFIG.RULES.PLAYERS_PER_TEAM; i++) {
-                const medarotIdNumber = teamIndex * CONFIG.RULES.PLAYERS_PER_TEAM + i + 1;
+            for (let i = 0; i < CONFIG.PLAYERS_PER_TEAM; i++) {
+                const medarotIdNumber = teamIndex * CONFIG.PLAYERS_PER_TEAM + i + 1;
                 const medarotDisplayId = `p${medarotIdNumber}`;
                 let medarotPartsConfig; let selectedMedalDataForCurrentMedarot;
 
-                const currentTeamBaseSpeed = teamId === 'team1' ? CONFIG.RULES.TEAM1_BASE_SPEED : CONFIG.RULES.TEAM2_BASE_SPEED;
+                const currentTeamBaseSpeed = (teamId === 'team1' ? CONFIG.TEAMS.team1.baseSpeed : CONFIG.TEAMS.team2.baseSpeed); // Kept original access for baseSpeed
 
                 if (teamIndex === 0 && i === 0) {
                     console.log(`Attempting to equip METABEE_SET for Medarot ${medarotDisplayId}`);
@@ -532,20 +523,20 @@ class GameManager {
                         selectedMedalDataForCurrentMedarot = this.medalsData.find(m => m.id === "M001");
                         if (!selectedMedalDataForCurrentMedarot) {
                             console.warn("METABEE_SET's conventional medal (M001) not found. Falling back to default medal selection for p1.");
-                            const medalIndex = (teamIndex * CONFIG.RULES.PLAYERS_PER_TEAM + i) % this.medalsData.length;
+                            const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
                             selectedMedalDataForCurrentMedarot = this.medalsData.length > 0 ? this.medalsData[medalIndex % this.medalsData.length] : null;
                         }
                     } else {
                         console.warn(`METABEE_SET for ${medarotDisplayId} is incomplete. Falling back to default loadout for p1.`);
                         const loadoutIndex = 0;
                         medarotPartsConfig = defaultLoadouts[loadoutIndex];
-                        const medalIndex = (teamIndex * CONFIG.RULES.PLAYERS_PER_TEAM + i) % this.medalsData.length;
+                        const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
                         selectedMedalDataForCurrentMedarot = this.medalsData.length > 0 ? this.medalsData[medalIndex % this.medalsData.length] : null;
                     }
                 } else {
-                    const loadoutIndex = teamIndex * CONFIG.RULES.PLAYERS_PER_TEAM + i;
+                    const loadoutIndex = teamIndex * CONFIG.PLAYERS_PER_TEAM + i;
                     medarotPartsConfig = defaultLoadouts[loadoutIndex % defaultLoadouts.length];
-                    const medalIndex = (teamIndex * CONFIG.RULES.PLAYERS_PER_TEAM + i) % this.medalsData.length;
+                    const medalIndex = (teamIndex * CONFIG.PLAYERS_PER_TEAM + i) % this.medalsData.length;
                     selectedMedalDataForCurrentMedarot = this.medalsData.length > 0 ? this.medalsData[medalIndex % this.medalsData.length] : null;
                 }
                 let medalForMedarot;
@@ -554,7 +545,7 @@ class GameManager {
                     console.warn(`No medal data found for Medarot ${medarotDisplayId}. Using a default fallback medal.`);
                     medalForMedarot = new Medal({ id: 'M_FALLBACK', name_jp: 'フォールバックメダル', personality_jp: 'ランダムターゲット', medaforce_jp: 'なし', attribute_jp: '無', skill_shoot: '1', skill_fight: '1', skill_scan: '1', skill_support: '1' });
                 }
-                this.medarots.push(new Medarot( medarotDisplayId, `Medarot ${medarotIdNumber}`, teamId, currentTeamBaseSpeed + (Math.random() * CONFIG.RULES.SPEED_RANDOM_FACTOR), medalForMedarot, { isLeader: i === 0, color: teamConfig.color }, medarotPartsConfig,  this.partsData ));
+                this.medarots.push(new Medarot( medarotDisplayId, `Medarot ${medarotIdNumber}`, teamId, currentTeamBaseSpeed + (Math.random() * 0.2), medalForMedarot, { isLeader: i === 0, color: teamConfig.color }, medarotPartsConfig,  this.partsData ));
             }
         });
     }
@@ -571,8 +562,8 @@ class GameManager {
         });
         this.medarots.forEach(medarot => {
             const idNum = parseInt(medarot.id.substring(1));
-            const indexInTeam = (idNum - 1) % CONFIG.RULES.PLAYERS_PER_TEAM;
-            const vPos = CONFIG.UI.MEDAROT_ICON_VERTICAL_INITIAL_OFFSET + indexInTeam * CONFIG.UI.MEDAROT_ICON_VERTICAL_SPACING;
+            const indexInTeam = (idNum - 1) % CONFIG.PLAYERS_PER_TEAM;
+            const vPos = 25 + indexInTeam * 25;
             this.dom.battlefield.appendChild(medarot.createIconDOM(vPos));
             const panel = document.getElementById(`${medarot.team}InfoPanel`);
             panel.appendChild(medarot.createInfoPanelDOM());
@@ -592,17 +583,14 @@ class GameManager {
     start() {
         if (this.phase !== 'IDLE') return;
         this.phase = 'INITIAL_SELECTION';
-        this.medarots.forEach(m => { m.gauge = CONFIG.RULES.MAX_GAUGE; m.state = 'ready_select'; m.updateDisplay(); });
+        this.medarots.forEach(m => { m.gauge = CONFIG.MAX_GAUGE; m.state = 'ready_select'; m.updateDisplay(); });
         this.dom.startButton.disabled = true; this.dom.startButton.textContent = "シミュレーション実行中...";
         this.dom.resetButton.style.display = "inline-block";
         this.resumeSimulation();
     }
 
     pauseSimulation() { clearInterval(this.simulationInterval); this.simulationInterval = null; }
-    resumeSimulation() {
-        if (this.simulationInterval) return;
-        this.simulationInterval = setInterval(() => this.gameLoop(), CONFIG.RULES.UPDATE_INTERVAL);
-    }
+    resumeSimulation() { if (this.simulationInterval) return; this.simulationInterval = setInterval(() => this.gameLoop(), CONFIG.UPDATE_INTERVAL); }
 
     reset() {
         this.pauseSimulation();
@@ -631,38 +619,6 @@ class GameManager {
         this.activeMedarot = medarot; this.pauseSimulation(); this.prepareAndShowExecutionModal(medarot);
     }
 
-    // Helper method to get a random part key from a given enemy
-    _selectRandomPartOnEnemy(enemyMedarot) {
-        if (!enemyMedarot || !enemyMedarot.parts) return null;
-        const availableParts = Object.entries(enemyMedarot.parts)
-                                 .filter(([pKey, pVal]) => pVal && !pVal.isBroken)
-                                 .map(([pKey, _]) => pKey);
-        if (availableParts.length === 0) return null;
-        return availableParts[Math.floor(Math.random() * availableParts.length)];
-    }
-
-    // Helper method to select a random enemy and a random part on that enemy
-    _selectRandomTargetEnemyAndPart(attacker) {
-        if (!attacker) return null;
-
-        const enemies = this.medarots.filter(m => m.team !== attacker.team && m.state !== 'broken');
-        if (enemies.length === 0) {
-            console.log(`[TARGETING_HELPER] ${attacker.name} found no enemies.`);
-            return null;
-        }
-
-        const randomEnemy = enemies[Math.floor(Math.random() * enemies.length)];
-        const randomPartKeyOnEnemy = this._selectRandomPartOnEnemy(randomEnemy);
-
-        if (!randomPartKeyOnEnemy) {
-            console.log(`[TARGETING_HELPER] ${attacker.name} found enemy ${randomEnemy.name} but it has no targetable parts.`);
-            return { targetEnemy: randomEnemy, targetPartKey: null }; // Return enemy but no part
-        }
-
-        console.log(`[TARGETING_HELPER] ${attacker.name} auto-selected target: ${randomEnemy.name}'s ${randomPartKeyOnEnemy}`);
-        return { targetEnemy: randomEnemy, targetPartKey: randomPartKeyOnEnemy };
-    }
-
     handleActionSelection(medarot) {
         if (medarot.team === 'team2') {
             const availableAttackPartsKeys = medarot.getAvailableAttackParts();
@@ -685,18 +641,21 @@ class GameManager {
                 medarot.selectAction(partKey);
                 if (attackingPartForCPU.category_jp === '射撃' && medarot.medal && medarot.medal.personality === 'ランダムターゲット') {
                     if (initialTargetForCPU.state !== 'broken') {
-                        const randomPartKeyCPU = this._selectRandomPartOnEnemy(initialTargetForCPU); // Use new helper
-                        if (randomPartKeyCPU) {
+                        const availablePartsCPU = Object.entries(initialTargetForCPU.parts)
+                                                  .filter(([pK, pV]) => pV && !pV.isBroken)
+                                                  .map(([pK, _]) => pK);
+                        if (availablePartsCPU.length > 0) {
+                            const randomPartKeyCPU = availablePartsCPU[Math.floor(Math.random() * availablePartsCPU.length)];
                             medarot.currentTargetedEnemy = initialTargetForCPU;
                             medarot.currentTargetedPartKey = randomPartKeyCPU;
-                            console.log(`${medarot.name} (CPU) targeted ${initialTargetForCPU.name}'s ${randomPartKeyCPU} with ${attackingPartForCPU.name_jp}`);
+                            console.log(`${medarot.name} (CPU) random targeted ${initialTargetForCPU.name}'s ${randomPartKeyCPU} with ${attackingPartForCPU.name_jp}`);
                         } else {
                             medarot.currentTargetedEnemy = null; medarot.currentTargetedPartKey = null;
                             console.log(`${medarot.name} (CPU) found enemy ${initialTargetForCPU.name} for shooting, but it has no targetable parts.`);
                         }
                     } else {
                          medarot.currentTargetedEnemy = null; medarot.currentTargetedPartKey = null;
-                         console.log(`${medarot.name} (CPU) found no valid initial target for shooting or target is broken.`);
+                         console.log(`${medarot.name} (CPU) initial target ${initialTargetForCPU.name} is broken. Cannot shoot.`);
                     }
                 }
             } else {
@@ -742,34 +701,36 @@ class GameManager {
         if (attacker.selectedPartKey && attacker.parts[attacker.selectedPartKey]) {
             const selectedPartInfo = attacker.parts[attacker.selectedPartKey];
             if (selectedPartInfo.category_jp === '射撃' && attacker.medal && attacker.medal.personality === 'ランダムターゲット') {
-                const targetSelection = this._selectRandomTargetEnemyAndPart(attacker); // Use new helper
+                const enemies = this.medarots.filter(m => m.team !== attacker.team && m.state !== 'broken');
+                if (enemies.length > 0) {
+                    const randomEnemy = enemies[Math.floor(Math.random() * enemies.length)];
+                    const availableParts = Object.entries(randomEnemy.parts).filter(([pK, pV]) => pV && !pV.isBroken).map(([pK, _]) => pK);
+                    if (availableParts.length > 0) {
+                        const randomPartKeyOnEnemy = availableParts[Math.floor(Math.random() * availableParts.length)];
+                        attacker.pendingTargetEnemy = randomEnemy;
+                        attacker.pendingTargetPartKey = randomPartKeyOnEnemy;
+                        console.log(`${attacker.name} (Player) pending target: ${randomEnemy.name}'s ${randomPartKeyOnEnemy} with ${selectedPartInfo.name_jp}`);
 
-                if (targetSelection && targetSelection.targetEnemy && targetSelection.targetPartKey) {
-                    attacker.pendingTargetEnemy = targetSelection.targetEnemy;
-                    attacker.pendingTargetPartKey = targetSelection.targetPartKey;
-                    // console.log is already in the helper, but this adds player context
-                    console.log(`${attacker.name} (Player) pending target: ${attacker.pendingTargetEnemy.name}'s ${attacker.pendingTargetPartKey} with ${selectedPartInfo.name_jp}`);
-
-                    if (this.dom.aimingArrow) this.drawArrow(attacker, attacker.pendingTargetEnemy);
-                    this.dom.modalTitle.textContent = 'ターゲット確認';
-                    const targetPartName = attacker.pendingTargetEnemy.parts[attacker.pendingTargetPartKey] ? attacker.pendingTargetEnemy.parts[attacker.pendingTargetPartKey].name_jp : '不明部位';
-                    this.dom.modalActorName.textContent = `${attacker.name}の${selectedPartInfo.name_jp}。ターゲット: ${attacker.pendingTargetEnemy.name}の${targetPartName}`;
-                    this.dom.partSelectionContainer.style.display = 'none';
-                    this.dom.modalExecuteAttackButton.style.display = 'inline-block';
-                    this.dom.modalCancelActionButton.style.display = 'inline-block';
-                    return;
-                } else if (targetSelection && targetSelection.targetEnemy) { // Enemy found, but no parts
+                        if (this.dom.aimingArrow) this.drawArrow(attacker, attacker.pendingTargetEnemy);
+                        this.dom.modalTitle.textContent = 'ターゲット確認';
+                        this.dom.modalActorName.textContent = `${attacker.name}の${selectedPartInfo.name_jp}。ターゲット: ${attacker.pendingTargetEnemy.name}${attacker.pendingTargetPartKey ? 'の' + attacker.pendingTargetEnemy.parts[attacker.pendingTargetPartKey].name_jp : ''}`;
+                        this.dom.partSelectionContainer.style.display = 'none';
+                        this.dom.modalExecuteAttackButton.style.display = 'inline-block';
+                        this.dom.modalCancelActionButton.style.display = 'inline-block';
+                        return;
+                    } else {
+                        attacker.pendingTargetEnemy = null; attacker.pendingTargetPartKey = null;
+                        console.log(`${attacker.name} (Player) found enemy ${randomEnemy.name} but it has no targetable parts.`);
+                        if (this.dom.aimingArrow) this.clearArrow();
+                        this.dom.modalActorName.textContent = `${randomEnemy.name}には狙えるパーツがありません。別の行動を選択してください。`;
+                        this.dom.partSelectionContainer.style.display = 'flex';
+                        this.dom.modalExecuteAttackButton.style.display = 'none';
+                        this.dom.modalCancelActionButton.style.display = 'none';
+                        return;
+                    }
+                } else {
                     attacker.pendingTargetEnemy = null; attacker.pendingTargetPartKey = null;
-                    console.log(`${attacker.name} (Player) found enemy ${targetSelection.targetEnemy.name} but it has no targetable parts (via helper).`);
-                    if (this.dom.aimingArrow) this.clearArrow();
-                    this.dom.modalActorName.textContent = `${targetSelection.targetEnemy.name}には狙えるパーツがありません。別の行動を選択してください。`;
-                    this.dom.partSelectionContainer.style.display = 'flex';
-                    this.dom.modalExecuteAttackButton.style.display = 'none';
-                    this.dom.modalCancelActionButton.style.display = 'none';
-                    return;
-                } else { // No enemy found
-                    attacker.pendingTargetEnemy = null; attacker.pendingTargetPartKey = null;
-                    console.log(`${attacker.name} (Player) found no enemies to target (via helper).`);
+                    console.log(`${attacker.name} (Player) found no enemies to target.`);
                     if (this.dom.aimingArrow) this.clearArrow();
                     this.dom.modalActorName.textContent = '狙える敵がいません。';
                     this.dom.partSelectionContainer.style.display = 'flex';
@@ -870,34 +831,37 @@ class GameManager {
                 console.log(`${medarot.name} executing shooting action against pre-selected target: ${targetEnemyMedarot.name}'s ${targetPartKeyForAttack}`);
             } else {
                 console.log(`${medarot.name}'s pre-selected shooting target is invalid/missing. Using default targeting for shooting.`);
-                targetEnemyMedarot = this._findStrategicEnemyMedarot(medarot, 'FARTHEST_X');
-                if (targetEnemyMedarot) {
-                    targetPartKeyForAttack = this._selectRandomPartOnEnemy(targetEnemyMedarot);
-                } else {
-                     console.log(`${medarot.name} could not find a fallback target for shooting.`);
+                targetEnemyMedarot = this.findEnemyTarget(medarot, attackingPart.sub_category_jp);
+                if (targetEnemyMedarot && targetEnemyMedarot.parts) {
+                    const availableTargetParts = Object.keys(targetEnemyMedarot.parts).filter(key => targetEnemyMedarot.parts[key] && !targetEnemyMedarot.parts[key].isBroken);
+                    if (availableTargetParts.length > 0) {
+                        targetPartKeyForAttack = availableTargetParts[Math.floor(Math.random() * availableTargetParts.length)];
+                    }
                 }
             }
         } else if (attackingPartCategory === '格闘') {
-            targetEnemyMedarot = this._findStrategicEnemyMedarot(medarot, 'CLOSEST_X');
-            if (targetEnemyMedarot && targetEnemyMedarot.state !== 'broken') {
-                targetPartKeyForAttack = this._selectRandomPartOnEnemy(targetEnemyMedarot);
-                if (targetPartKeyForAttack) {
+            targetEnemyMedarot = this.findEnemyTarget(medarot, 'Fight');
+            if (targetEnemyMedarot && targetEnemyMedarot.state !== 'broken' && targetEnemyMedarot.parts) {
+                const availableTargetParts = Object.keys(targetEnemyMedarot.parts)
+                                             .filter(key => targetEnemyMedarot.parts[key] && !targetEnemyMedarot.parts[key].isBroken);
+                if (availableTargetParts.length > 0) {
+                    targetPartKeyForAttack = availableTargetParts[Math.floor(Math.random() * availableTargetParts.length)];
                     console.log(`${medarot.name} executing fighting action against closest target: ${targetEnemyMedarot.name}, hitting part ${targetPartKeyForAttack}`);
                 } else {
                      console.log(`${medarot.name} found closest enemy ${targetEnemyMedarot.name} for fighting, but it has no targetable parts.`);
                 }
             } else if (targetEnemyMedarot) {
-                 console.log(`${medarot.name} found closest enemy ${targetEnemyMedarot.name} but it's broken.`);
+                 console.log(`${medarot.name} found closest enemy ${targetEnemyMedarot.name} but it's broken or has no parts data.`);
             } else {
                 console.log(`${medarot.name} found no valid closest enemy for fighting action.`);
             }
         } else {
-            // For other action types (Support, Disrupt, Defend), targeting might be different
-            targetEnemyMedarot = this._findStrategicEnemyMedarot(medarot, 'LEADER_PRIORITY');
-            if (targetEnemyMedarot) {
-                targetPartKeyForAttack = this._selectRandomPartOnEnemy(targetEnemyMedarot);
-            } else {
-                console.log(`${medarot.name} using non-attack category ${attackingPartCategory}, could not find a fallback target.`);
+            targetEnemyMedarot = this.findEnemyTarget(medarot, attackingPart.sub_category_jp);
+            if (targetEnemyMedarot && targetEnemyMedarot.parts) {
+                const availableTargetParts = Object.keys(targetEnemyMedarot.parts).filter(key => targetEnemyMedarot.parts[key] && !targetEnemyMedarot.parts[key].isBroken);
+                if (availableTargetParts.length > 0) {
+                    targetPartKeyForAttack = availableTargetParts[Math.floor(Math.random() * availableTargetParts.length)];
+                }
             }
         }
 
@@ -909,7 +873,7 @@ class GameManager {
         medarot.preparedAttack = {
             target: targetEnemyMedarot,
             partKey: targetPartKeyForAttack,
-            damage: CONFIG.RULES.BASE_DAMAGE
+            damage: CONFIG.BASE_DAMAGE
         };
         this.showModal('execution', medarot);
     }
