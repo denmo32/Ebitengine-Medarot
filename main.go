@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bytes" // Required for bytes.Reader
+	// "bytes" // opentype.Parseは[]byteを直接受け取るため不要
 	_ "embed" // Required for go:embed
 	"log"
 	"math/rand"
-	"os" // 追加
+	"os"
 	"time"
 
 	"github.com/hajimehoshi/ebiten/v2"
@@ -13,7 +13,7 @@ import (
 	"golang.org/x/image/font/opentype"
 )
 
-//go:embed mplus-1p-regular.ttf
+//go:embed MPLUS1p-Regular.ttf
 var mplusFontData []byte
 
 var MplusFont font.Face // This will be accessed by game.go
@@ -24,9 +24,9 @@ func loadFont() error {
 		return err
 	}
 	const dpi = 72
-	// Adjust font size as needed, 12 might be too small/large depending on new resolution
+	// Adjust font size as needed
 	MplusFont, err = opentype.NewFace(tt, &opentype.FaceOptions{
-		Size:    10, // Changed from 12 to 10
+		Size:    10,
 		DPI:     dpi,
 		Hinting: font.HintingFull,
 	})
@@ -74,7 +74,6 @@ func main() {
 		log.Println("Warning: No parts were loaded for any slot. Medarots might use placeholder parts.")
 	}
 
-
 	// Create a new game instance
 	game := NewGame(gameData)
 	if game == nil {
@@ -84,10 +83,9 @@ func main() {
 		log.Fatal("Game initialized with no Medarots.")
 	}
 
-
 	// Set window properties
 	ebiten.SetWindowSize(ScreenWidth, ScreenHeight)
-	ebiten.SetWindowTitle("Medarot Ebitengine Port")
+	ebiten.SetWindowTitle("メダロット風ゲーム (Ebitengine)") // タイトルも日本語にできます
 
 	// Start the game loop
 	if err := ebiten.RunGame(game); err != nil {
