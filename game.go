@@ -134,35 +134,107 @@ func (g *Game) Update() error {
 	return nil
 }
 
+// Layout constants for the new UI
+const (
+	BattlefieldHeight      = ScreenHeight / 2
+	InfoPanelHeight        = ScreenHeight / 2
+	InfoPanelStartY        = BattlefieldHeight
+	InfoPanelPadding       = 10
+	MedarotInfoBlockWidth  = (ScreenWidth - InfoPanelPadding*3) / 2 // For two columns
+	MedarotInfoBlockHeight = (InfoPanelHeight - InfoPanelPadding*2) / PlayersPerTeam
+	PartHPGaugeWidth       = 100
+	PartHPGaugeHeight      = 8
+	TextLineHeight         = 14
+)
+
+// Helper function to draw individual Medarot's info in the lower panel
+func drawMedarotInfo(screen *ebiten.Image, medarot *Medarot, startX, startY, blockWidth, blockHeight float32) {
+	// Draw Medarot Name
+	text.Draw(screen, medarot.Name, basicfont.Face7x13, int(startX), int(startY)+TextLineHeight, FontColor)
+
+	partSlots := []string{"head", "rightArm", "leftArm", "legs"}
+	partSlotDisplayNames := map[string]string{
+		"head":     "頭",
+		"rightArm": "右腕", // Changed for clarity
+		"leftArm":  "左腕", // Changed for clarity
+		"legs":     "脚部", // Changed for clarity
+	}
+
+	currentY := startY + float32(TextLineHeight*2) // Start Y for parts info
+
+	for _, slotKey := range partSlots {
+		displayName := partSlotDisplayNames[slotKey]
+		hpText := "N/A"
+		var hpPercentage float64 = 0
+		var currentHP, maxHP int = 0
+
+		if part, ok := medarot.Parts[slotKey]; ok && part != nil {
+			currentHP = part.HP
+			maxHP = part.MaxHP
+			hpText = fmt.Sprintf("%s: %d/%d", displayName, currentHP, maxHP)
+			if maxHP > 0 {
+				hpPercentage = float64(currentHP) / float64(maxHP)
+			}
+		} else {
+			hpText = fmt.Sprintf("%s: N/A", displayName)
+		}
+
+		// Draw Part HP Text
+		text.Draw(screen, hpText, basicfont.Face7x13, int(startX), int(currentY)+TextLineHeight, FontColor)
+
+		// Draw Part HP Gauge
+		gaugeX := startX + 70 // Position gauge to the right of text
+		gaugeY := currentY + float32(TextLineHeight/2) + 2
+
+		// Background of the gauge
+		vector.DrawFilledRect(screen, gaugeX, gaugeY, float32(PartHPGaugeWidth), float32(PartHPGaugeHeight), color.RGBA{50, 50, 50, 255}, true)
+		// Foreground of the gauge
+		barColor := HPColor
+		if currentHP == 0 {
+			barColor = BrokenColor // Or a very dark red
+		} else if hpPercentage < 0.3 {
+			barColor = ColorRed
+		} else if hpPercentage < 0.6 {
+			barColor = ColorYellow
+		}
+		vector.DrawFilledRect(screen, gaugeX, gaugeY, float32(PartHPGaugeWidth*hpPercentage), float32(PartHPGaugeHeight), barColor, true)
+
+		currentY += float32(TextLineHeight) + PartHPGaugeHeight // Move Y for next part (text + gauge height)
+		if currentY > startY+blockHeight-float32(TextLineHeight) { // Prevent drawing outside allocated block
+			break
+		}
+	}
+}
+
 // Draw draws the game screen.
 // Draw is called every frame (typically 1/60 [s] for 60Hz display).
 func (g *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(BGColor) // Use defined background color
+	screen.Fill(BGColor)
 
-	team1Count := 0
-	team2Count := 0
+	// --- Draw Battlefield Area (Upper Half) ---
+	team1IconCount := 0
+	team2IconCount := 0
+	battlefieldIconYSpacing := BattlefieldHeight / (PlayersPerTeam + 1)
 
 	for _, medarot := range g.Medarots {
-		// Determine base Y position based on team and order
-		var baseYPos float32
+		// Determine base Y position for icons in the battlefield
+		var iconYPos float32
 		if medarot.Team == Team1 {
-			baseYPos = float32(MedarotVerticalSpacing * (team1Count + 1))
-			team1Count++
+			iconYPos = float32(battlefieldIconYSpacing * (team1IconCount + 1))
+			team1IconCount++
 		} else {
-			baseYPos = float32(MedarotVerticalSpacing * (team2Count + 1))
-			team2Count++
+			iconYPos = float32(battlefieldIconYSpacing * (team2IconCount + 1))
+			team2IconCount++
 		}
 
-		// Determine X position based on state and gauge
+		// Determine X position based on state and gauge (same logic as before)
 		var currentX float32
 		progress := 0.0
+		// ... (Gauge calculation logic - this part remains the same as original)
 		if medarot.State == StateActionCharging && medarot.CurrentActionCharge > 0 {
 			progress = medarot.Gauge / medarot.CurrentActionCharge
 		} else if medarot.State == StateActionCooldown && medarot.CurrentActionCooldown > 0 {
 			progress = medarot.Gauge / medarot.CurrentActionCooldown
-		} else if (medarot.State == StateIdleCharging || medarot.State == StateReadyToSelectAction) && medarot.MaxGauge > 0 {
-			// For idle, let's consider it "progress towards selection" but positionally static at home
-			// progress = medarot.Gauge / medarot.MaxGauge // This would make it move during idle, not desired for home.
 		}
 
 		switch medarot.State {
@@ -180,119 +252,71 @@ func (g *Game) Draw(screen *ebiten.Image) {
 		case StateReadyToExecuteAction:
 			currentX = float32(ExecutionLineX)
 		case StateActionCooldown:
-			// Moving back to home position
 			if medarot.Team == Team1 {
 				currentX = float32(ExecutionLineX - progress*(ExecutionLineX-Team1HomeX))
 			} else {
 				currentX = float32(ExecutionLineX + progress*(Team2HomeX-ExecutionLineX))
 			}
 		case StateBroken:
-			// Stay at home position if broken, or last known if that's preferred
 			currentX = float32(Team1HomeX)
 			if medarot.Team == Team2 {
 				currentX = float32(Team2HomeX)
 			}
 		default:
-			currentX = float32(Team1HomeX) // Default fallback
+			currentX = float32(Team1HomeX)
 			if medarot.Team == Team2 {
 				currentX = float32(Team2HomeX)
 			}
 		}
+		if currentX < IconRadius { currentX = IconRadius }
+		if currentX > ScreenWidth-IconRadius { currentX = ScreenWidth - IconRadius }
 
-		// Clamp X to screen bounds just in case
-		if currentX < IconRadius {
-			currentX = IconRadius
-		}
-		if currentX > ScreenWidth-IconRadius {
-			currentX = ScreenWidth - IconRadius
-		}
 
-		// --- Draw Medarot Icon (Circle) ---
+		// Draw Medarot Icon
 		iconColor := Team1Color
-		if medarot.Team == Team2 {
-			iconColor = Team2Color
-		}
-		if medarot.State == StateBroken {
-			iconColor = BrokenColor
-		}
-		vector.DrawFilledCircle(screen, currentX, baseYPos, float32(IconRadius), iconColor, true)
-
-		if medarot.IsLeader { // Draw leader indicator (e.g., a yellow border or smaller circle)
-			// ★★★ 修正点3: 関数名を `StrokeCircle` に変更 ★★★
-			vector.StrokeCircle(screen, currentX, baseYPos, float32(IconRadius+2), float32(2), LeaderColor, true)
+		if medarot.Team == Team2 { iconColor = Team2Color }
+		if medarot.State == StateBroken { iconColor = BrokenColor }
+		vector.DrawFilledCircle(screen, currentX, iconYPos, float32(IconRadius), iconColor, true)
+		if medarot.IsLeader {
+			vector.StrokeCircle(screen, currentX, iconYPos, float32(IconRadius+2), 2, LeaderColor, true)
 		}
 
-		// --- Draw Name and HP ---
-		nameStr := medarot.Name
-		hpStr := fmt.Sprintf("HP: %d/%d", medarot.Parts["head"].HP, medarot.Parts["head"].MaxHP) // Simplification: show head HP as main HP
-		if medarot.Parts["head"] == nil { // Safety check
-			hpStr = "HP: N/A"
-		}
-
-		textYOffset := float32(IconRadius + 5)
-		text.Draw(screen, nameStr, basicfont.Face7x13, int(currentX)-IconRadius*2, int(baseYPos-textYOffset), FontColor)
-
-		// ★★★ 修正点4: hpStr変数を描画する処理を追加 ★★★
-		// ※Y座標はよしなに変更してください
-		text.Draw(screen, hpStr, basicfont.Face7x13, int(currentX)-IconRadius*2, int(baseYPos-textYOffset+12), FontColor)
-
-		// --- Draw HP Bar ---
-		hpBarY := baseYPos + float32(IconRadius) + 3
-		hpPercentage := 0.0
-		if headPart := medarot.GetPart("head"); headPart != nil && headPart.MaxHP > 0 {
-			hpPercentage = float64(headPart.HP) / float64(headPart.MaxHP)
-		}
-		vector.DrawFilledRect(screen, currentX-float32(BarWidth/2), hpBarY, float32(BarWidth), ChargeBarHeight, color.RGBA{50, 50, 50, 255}, true) // BG for HP Bar
-		vector.DrawFilledRect(screen, currentX-float32(BarWidth/2), hpBarY, float32(BarWidth*hpPercentage), ChargeBarHeight, HPColor, true)
-
-		// --- Draw Charge/Cooldown Bar ---
-		chargeBarY := hpBarY + HPBarHeight + 2
-		barColor := ChargeColor
-		currentGaugeVal := medarot.Gauge
-		maxGaugeForBar := medarot.MaxGauge
-
-		switch medarot.State {
-		case StateActionCharging:
-			maxGaugeForBar = medarot.CurrentActionCharge
-			barColor = ChargeColor
-		case StateActionCooldown:
-			maxGaugeForBar = medarot.CurrentActionCooldown
-			barColor = CooldownColor
-		case StateIdleCharging, StateReadyToSelectAction:
-			// For idle/ready, it's the "time to select" gauge
-			barColor = ColorGreen // Or another distinct color for "ready"
-		case StateBroken, StateReadyToExecuteAction:
-			currentGaugeVal = 0 // No bar needed or full bar for ready execute
-			maxGaugeForBar = 0  // Avoid division by zero
-		}
-
-		gaugePercentage := 0.0
-		if maxGaugeForBar > 0 {
-			gaugePercentage = currentGaugeVal / maxGaugeForBar
-			if gaugePercentage > 1.0 {
-				gaugePercentage = 1.0
-			}
-		} else if medarot.State == StateReadyToExecuteAction {
-			gaugePercentage = 1.0 // Full bar when ready to execute
-			barColor = ChargeColor
-		}
-
-		if medarot.State != StateBroken {
-			vector.DrawFilledRect(screen, currentX-float32(BarWidth/2), chargeBarY, float32(BarWidth), ChargeBarHeight, color.RGBA{50, 50, 50, 255}, true) // BG for Charge Bar
-			vector.DrawFilledRect(screen, currentX-float32(BarWidth/2), chargeBarY, float32(BarWidth*gaugePercentage), ChargeBarHeight, barColor, true)
-		}
-
-		// --- Draw State Text (optional, for debugging or clarity) ---
-		if g.DebugMode {
-			stateStr := string(medarot.State)
-			if medarot.State == StateActionCharging || medarot.State == StateActionCooldown {
-				if part := medarot.GetPart(medarot.SelectedPartKey); part != nil {
-					stateStr += fmt.Sprintf(" (%s)", part.Name)
-				}
-			}
-			text.Draw(screen, stateStr, basicfont.Face7x13, int(currentX)-IconRadius*3, int(baseYPos+textYOffset+15), FontColor)
-		}
+		// }
 	}
+
+	// --- Draw Info Panel Area (Lower Half) ---
+	team1InfoCount := 0
+	team2InfoCount := 0
+
+	// Sort Medarots by ID for stable display order in info panel (optional but good practice)
+	// If g.Medarots is already sorted, this is not strictly necessary here.
+	// sort.SliceStable(g.Medarots, func(i, j int) bool { return g.Medarots[i].ID < g.Medarots[j].ID })
+
+
+	for _, medarot := range g.Medarots {
+		var panelX, panelY float32
+		var blockWidth, blockHeight float32 = float32(MedarotInfoBlockWidth), float32(MedarotInfoBlockHeight)
+
+		if medarot.Team == Team1 {
+			panelX = float32(InfoPanelPadding)
+			panelY = float32(InfoPanelStartY + InfoPanelPadding + (MedarotInfoBlockHeight * float32(team1InfoCount)) + (InfoPanelPadding * float32(team1InfoCount)))
+			team1InfoCount++
+		} else { // Team2
+			panelX = float32(InfoPanelPadding*2 + MedarotInfoBlockWidth)
+			panelY = float32(InfoPanelStartY + InfoPanelPadding + (MedarotInfoBlockHeight * float32(team2InfoCount)) + (InfoPanelPadding * float32(team2InfoCount)))
+			team2InfoCount++
+		}
+
+		// Ensure the block does not go off screen (especially the last one if spacing is tight)
+		if panelY + blockHeight > ScreenHeight {
+			// This might happen if too many players or not enough space.
+			// Consider adjusting MedarotInfoBlockHeight or InfoPanelPadding
+			// For now, we'll just let it draw, but in a real scenario, this needs robust handling.
+		}
+
+		drawMedarotInfo(screen, medarot, panelX, panelY, blockWidth, blockHeight)
+	}
+
 
 	// Draw Tick Count for debugging
 	if g.DebugMode {
