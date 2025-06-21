@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	PlayersPerTeam = 3
+	// PlayersPerTeam = 3
 	Team1          = "Team1"
 	Team2          = "Team2"
 )
@@ -85,7 +85,7 @@ func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData,
 		if teamID == Team1 && i == 0 {
 			metabeeSetID := "METABEE_SET"
 			metabeePartID := "P001" // In JS, this was the same for all slots of Metabee set.
-
+			
 			head := findPartBySetIDAndID(gameData.AllParts["head"], metabeeSetID, metabeePartID)
 			ra := findPartBySetIDAndID(gameData.AllParts["rightArm"], metabeeSetID, metabeePartID)
 			la := findPartBySetIDAndID(gameData.AllParts["leftArm"], metabeeSetID, metabeePartID)
@@ -105,7 +105,7 @@ func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData,
                 }
 			}
 		}
-
+		
 		// Fallback or standard selection
 		if partsConfig.Head == "" { // If not Metabee or Metabee setup failed
 			loadoutIndex := 0
@@ -132,7 +132,7 @@ func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData,
 				selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback Medal", SkillShoot: 1, SkillFight: 1} // Simplified
 			}
 		}
-
+		
 		// Ensure a medal is always assigned
 		if selectedMedal == nil {
 			selectedMedal = &Medal{ID: "M_DEFAULT", Name: "Default Medal", SkillShoot: 1, SkillFight: 1}
@@ -187,7 +187,7 @@ func InitializeAllMedarots(gameData *GameData) []*Medarot {
 
 	team2Medarots := createMedarotTeam(Team2, team2BaseSpeed, gameData, false)
 	allMedarots = append(allMedarots, team2Medarots...)
-
+	
 	fmt.Printf("Initialized %d medarots in total.\n", len(allMedarots))
 	for _, m := range allMedarots {
 		fmt.Printf("  - %s (%s), Leader: %t, Speed: %.2f, Medal: %s\n", m.Name, m.Team, m.IsLeader, m.Speed, m.Medal.Name)

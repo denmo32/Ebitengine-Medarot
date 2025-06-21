@@ -190,7 +190,7 @@ func (m *Medarot) SelectAction(partSlotKey string) bool {
 		// fmt.Printf("Warning: %s (%s) cannot select action, not in ReadyToSelectAction state (current: %s)\n", m.Name, m.ID, m.State)
 		return false
 	}
-
+	
 	partToUse, exists := m.Parts[partSlotKey]
 	if !exists || partToUse == nil || partToUse.IsBroken {
 		// fmt.Printf("Warning: %s (%s) cannot select action, part %s not available or broken.\n", m.Name, m.ID, partSlotKey)
@@ -218,7 +218,7 @@ func (m *Medarot) ExecuteAction() bool {
 		// fmt.Printf("Warning: %s (%s) cannot execute action, not in ReadyToExecuteAction state (current: %s)\n", m.Name, m.ID, m.State)
 		return false
 	}
-
+	
 	selectedPart := m.GetPart(m.SelectedPartKey)
 	if selectedPart == nil {
 		// This case should ideally be prevented by checks before ExecuteAction is called
@@ -231,7 +231,7 @@ func (m *Medarot) ExecuteAction() bool {
 		m.CurrentActionCooldown = 0
 		return false
 	}
-
+	
 	// fmt.Printf("%s (%s) executed action: %s!\n", m.Name, m.ID, selectedPart.Name)
 
 	// Transition to cooldown

@@ -55,7 +55,7 @@ func LoadMedals(filePath string) ([]Medal, error) {
 			// fmt.Printf("Warning: skipping short record in medal csv %s: expected %d fields, got %d\n", filePath, len(headers), len(record))
 			continue
 		}
-
+		
 		data := make(map[string]string)
 		for i, header := range headers {
 			data[header] = record[i]
@@ -124,7 +124,7 @@ func LoadParts(filePath string, slotName string) ([]Part, error) {
 		for i, header := range headers {
 			data[header] = record[i]
 		}
-
+		
 		if data["id"] == "" { // Skip if ID is empty
 			// fmt.Printf("Warning: skipping record with empty ID in part csv %s\n", filePath)
 			continue
@@ -209,7 +209,7 @@ func LoadAllGameData() (*GameData, error) {
 		return nil, fmt.Errorf("failed to load legs parts: %w", err)
 	}
 	gameData.AllParts["legs"] = gameData.LegsParts
-
+	
 	if len(gameData.Medals) == 0 {
 		fmt.Println("Warning: No medals were loaded.")
 	}

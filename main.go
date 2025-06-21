@@ -29,12 +29,12 @@ func main() {
 	if gameData == nil {
 		log.Fatal("Game data is nil after loading.")
 	}
-
+	
 	// Check if crucial data is loaded
 	if len(gameData.Medals) == 0 {
 		log.Println("Warning: No medals were loaded. Medarots might use fallback medals.")
 	}
-	if len(gameData.AllParts["head"]) == 0 &&
+	if len(gameData.AllParts["head"]) == 0 && 
 	   len(gameData.AllParts["rightArm"]) == 0 &&
 	   len(gameData.AllParts["leftArm"]) == 0 &&
 	   len(gameData.AllParts["legs"]) == 0 {
