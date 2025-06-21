@@ -219,22 +219,22 @@ body {
     z-index: 0 !important; /* Ensure it's visible on battlefield, but behind icons if they have z-index > 0 */
 }
 
-/* --- Execute Lines --- */
+/* --- Execute Lines (Simplified for Testing Visibility) --- */
 .execute-line {
     position: absolute;
     top: 0;
     bottom: 0;
-    width: 2px; /* Thickness of the line */
-    background-color: rgba(255, 255, 0, 0.5); /* Yellowish, semi-transparent */
-    z-index: 1; /* Above center line, below icons */
+    width: 2px;
+    background-color: rgba(255, 255, 0, 0.7); /* Yellow, slightly more opaque */
+    z-index: 0; /* Same z-index as center-line for now */
 }
 
 #team1-execute-line {
-    left: calc(var(--team1-execute-x, 45) * 1%); /* Set by JS via CSS variable */
-    transform: translateX(-50%);
+    left: 45%; /* Fixed percentage based on CONFIG.TEAM1_EXECUTE_X */
+    transform: translateX(-1px); /* Center 2px line */
 }
 
 #team2-execute-line {
-    left: calc(var(--team2-execute-x, 55) * 1%); /* Set by JS via CSS variable */
-    transform: translateX(-50%);
+    left: 55%; /* Fixed percentage based on CONFIG.TEAM2_EXECUTE_X */
+    transform: translateX(-1px); /* Center 2px line */
 }
