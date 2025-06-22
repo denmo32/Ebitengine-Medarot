@@ -156,6 +156,16 @@ func LoadParts(filePath string, slotName string) ([]Part, error) {
 			DefenseParam:  parseInt(data["defense_param"]),
 			SetID:         data["set_id"],
 		}
+
+		// Set ActionType based on Category
+		switch part.Category {
+		case "射撃":
+			part.ActionType = "shoot"
+		case "格闘":
+			part.ActionType = "fight"
+		default:
+			part.ActionType = "other"
+		}
 		parts = append(parts, part)
 	}
 	if len(parts) == 0 && err != io.EOF {

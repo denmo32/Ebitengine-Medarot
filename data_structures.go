@@ -43,6 +43,7 @@ type Part struct {
 	Propulsion    int
 	DefenseParam  int
 	SetID         string
+	ActionType    string // "shoot", "fight", "other"
 }
 
 // Medarot represents a single Medarot unit.
@@ -61,6 +62,7 @@ type Medarot struct {
 	CurrentActionCharge   float64
 	CurrentActionCooldown float64
 	SelectedPartKey       string
+	TargetedMedarot       *Medarot // Currently targeted Medarot
 }
 
 // GetPart returns a specific part, nil if not found or broken.
@@ -100,6 +102,7 @@ func NewMedarot(id, name string, team TeamID, speed float64, medal *Medal, isLea
 		CurrentActionCharge:   0,
 		CurrentActionCooldown: 0,
 		SelectedPartKey:       "",
+		TargetedMedarot:       nil,
 	}
 }
 
@@ -141,6 +144,34 @@ func (m *Medarot) Update() {
 			return
 		}
 		m.Gauge += chargeRate
+
+		// Check for action cancellation conditions for shoot attacks during charge
+		selectedPartForCharge := m.GetPart(m.SelectedPartKey) // Re-fetch part to check its current status
+		if selectedPartForCharge != nil && selectedPartForCharge.ActionType == "shoot" {
+			if m.TargetedMedarot != nil && m.TargetedMedarot.State == StateBroken {
+				// Target is broken
+				m.State = StateReadyToSelectAction // Or StateActionCooldown if preferred
+				m.Gauge = 0
+				m.SelectedPartKey = ""
+				m.CurrentActionCharge = 0
+				// m.CurrentActionCooldown = 0; // Decide if cooldown applies on cancellation
+				m.TargetedMedarot = nil
+				// log.Printf("%s's shoot target %s is broken. Action cancelled.", m.Name, m.TargetedMedarot.Name) // Requires log import
+				return // Exit update for this tick
+			}
+			if selectedPartForCharge.IsBroken {
+				// Own action part is broken
+				m.State = StateReadyToSelectAction // Or StateActionCooldown
+				m.Gauge = 0
+				m.SelectedPartKey = ""
+				m.CurrentActionCharge = 0
+				// m.CurrentActionCooldown = 0;
+				m.TargetedMedarot = nil // Clear target as action is cancelled
+				// log.Printf("%s's action part %s is broken. Action cancelled.", m.Name, selectedPartForCharge.Name)
+				return // Exit update for this tick
+			}
+		}
+
 		if m.Gauge >= m.CurrentActionCharge {
 			m.Gauge = m.CurrentActionCharge
 			m.State = StateReadyToExecuteAction
@@ -191,7 +222,8 @@ func (m *Medarot) SelectAction(partSlotKey string) bool {
 }
 
 // ExecuteAction transitions the Medarot to the cooldown phase.
-func (m *Medarot) ExecuteAction() bool {
+// It now accepts the game instance to allow for context-aware actions like finding the closest opponent.
+func (m *Medarot) ExecuteAction(g *Game) bool {
 	if m.State != StateReadyToExecuteAction {
 		return false
 	}
