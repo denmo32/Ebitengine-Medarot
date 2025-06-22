@@ -2,13 +2,8 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
-)
-
-const (
-	// PlayersPerTeam = 3
-	Team1          = "Team1"
-	Team2          = "Team2"
 )
 
 // DefaultLoadout defines a set of part IDs for a Medarot.
@@ -32,7 +27,6 @@ var defaultLoadouts = []DefaultLoadout{
 func findPartByID(parts []Part, id string) *Part {
 	for i := range parts {
 		if parts[i].ID == id {
-			// Return a copy to avoid modifying the original slice data if the part is modified later
 			p := parts[i]
 			return &p
 		}
@@ -51,7 +45,6 @@ func findPartBySetIDAndID(parts []Part, setID, partID string) *Part {
 	return nil
 }
 
-
 // findMedalByID searches for a medal by ID.
 func findMedalByID(medals []Medal, id string) *Medal {
 	for i := range medals {
@@ -63,12 +56,13 @@ func findMedalByID(medals []Medal, id string) *Medal {
 	return nil
 }
 
-// createMedarotTeam creates a team of Medarots.
-func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData, isTeam1 bool) []*Medarot {
+// ★★★ 修正点1: 引数の型を `TeamID` に変更 ★★★
+func createMedarotTeam(teamID TeamID, teamBaseSpeed float64, gameData *GameData, isTeam1 bool) []*Medarot {
 	var teamMedarots []*Medarot
 
 	for i := 0; i < PlayersPerTeam; i++ {
 		medarotIDNumber := 0
+		// ★★★ 修正点2: 比較を `TeamID` 型で行う ★★★
 		if teamID == Team1 {
 			medarotIDNumber = i + 1
 		} else {
@@ -82,10 +76,11 @@ func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData,
 		var partsConfig DefaultLoadout
 
 		// Special setup for p1 (Metabee)
+		// ★★★ 修正点2: 比較を `TeamID` 型で行う ★★★
 		if teamID == Team1 && i == 0 {
 			metabeeSetID := "METABEE_SET"
-			metabeePartID := "P001" // In JS, this was the same for all slots of Metabee set.
-			
+			metabeePartID := "P001"
+
 			head := findPartBySetIDAndID(gameData.AllParts["head"], metabeeSetID, metabeePartID)
 			ra := findPartBySetIDAndID(gameData.AllParts["rightArm"], metabeeSetID, metabeePartID)
 			la := findPartBySetIDAndID(gameData.AllParts["leftArm"], metabeeSetID, metabeePartID)
@@ -93,22 +88,21 @@ func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData,
 
 			if head != nil && ra != nil && la != nil && legs != nil {
 				partsConfig = DefaultLoadout{Head: head.ID, RightArm: ra.ID, LeftArm: la.ID, Legs: legs.ID}
-				selectedMedal = findMedalByID(gameData.Medals, "M001") // Metabee's medal
+				selectedMedal = findMedalByID(gameData.Medals, "M001")
 				if selectedMedal == nil {
-					fmt.Printf("Warning: Metabee's conventional medal (M001) not found for %s. Falling back.\n", medarotDisplayID)
+					log.Printf("Warning: Metabee's conventional medal (M001) not found for %s. Falling back.\n", medarotDisplayID)
 				}
 			} else {
-				fmt.Printf("Warning: METABEE_SET for %s is incomplete. Falling back to default loadout.\n", medarotDisplayID)
-				// Fallback to default loadout if set is not complete
-                if len(defaultLoadouts) > 0 {
-				    partsConfig = defaultLoadouts[0]
-                }
+				log.Printf("Warning: METABEE_SET for %s is incomplete. Falling back to default loadout.\n", medarotDisplayID)
+				if len(defaultLoadouts) > 0 {
+					partsConfig = defaultLoadouts[0]
+				}
 			}
 		}
-		
-		// Fallback or standard selection
-		if partsConfig.Head == "" { // If not Metabee or Metabee setup failed
+
+		if partsConfig.Head == "" {
 			loadoutIndex := 0
+			// ★★★ 修正点2: 比較を `TeamID` 型で行う ★★★
 			if teamID == Team1 {
 				loadoutIndex = i
 			} else {
@@ -117,8 +111,9 @@ func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData,
 			partsConfig = defaultLoadouts[loadoutIndex%len(defaultLoadouts)]
 		}
 
-		if selectedMedal == nil { // If not Metabee's medal or it wasn't found
+		if selectedMedal == nil {
 			medalIndex := 0
+			// ★★★ 修正点2: 比較を `TeamID` 型で行う ★★★
 			if teamID == Team1 {
 				medalIndex = i
 			} else {
@@ -127,46 +122,41 @@ func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData,
 			if len(gameData.Medals) > 0 {
 				selectedMedal = &gameData.Medals[medalIndex%len(gameData.Medals)]
 			} else {
-				// Create a fallback medal if no medals are loaded
-				fmt.Printf("Warning: No medals loaded. Creating a fallback medal for %s.\n", medarotDisplayID)
-				selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback Medal", SkillShoot: 1, SkillFight: 1} // Simplified
+				log.Printf("Warning: No medals loaded. Creating a fallback medal for %s.\n", medarotDisplayID)
+				selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback Medal", SkillShoot: 1, SkillFight: 1}
 			}
 		}
-		
-		// Ensure a medal is always assigned
+
 		if selectedMedal == nil {
 			selectedMedal = &Medal{ID: "M_DEFAULT", Name: "Default Medal", SkillShoot: 1, SkillFight: 1}
 		}
 
-
-		// Create the Medarot instance
-		// Speed variation from JS: + (Math.random() * 0.2)
 		medarotSpeed := teamBaseSpeed + (rand.Float64() * 0.2)
+		// ★★★ 修正点3: `NewMedarot`に `TeamID` 型を渡す ★★★
 		medarot := NewMedarot(medarotDisplayID, medarotName, teamID, medarotSpeed, selectedMedal, isLeader)
 
-		// Equip parts
 		if p := findPartByID(gameData.AllParts["head"], partsConfig.Head); p != nil {
 			medarot.Parts["head"] = p
 		} else {
-			fmt.Printf("Warning: Head part %s not found for %s. Equipping placeholder.\n", partsConfig.Head, medarot.ID)
+			log.Printf("Warning: Head part %s not found for %s. Equipping placeholder.\n", partsConfig.Head, medarot.ID)
 			medarot.Parts["head"] = &Part{ID: "placeholder", Name: "Missing Head", Slot: "head", IsBroken: true, MaxHP: 1, HP: 1}
 		}
 		if p := findPartByID(gameData.AllParts["rightArm"], partsConfig.RightArm); p != nil {
 			medarot.Parts["rightArm"] = p
 		} else {
-			fmt.Printf("Warning: RightArm part %s not found for %s. Equipping placeholder.\n", partsConfig.RightArm, medarot.ID)
+			log.Printf("Warning: RightArm part %s not found for %s. Equipping placeholder.\n", partsConfig.RightArm, medarot.ID)
 			medarot.Parts["rightArm"] = &Part{ID: "placeholder", Name: "Missing RARM", Slot: "rightArm", IsBroken: true, MaxHP: 1, HP: 1}
 		}
 		if p := findPartByID(gameData.AllParts["leftArm"], partsConfig.LeftArm); p != nil {
 			medarot.Parts["leftArm"] = p
 		} else {
-			fmt.Printf("Warning: LeftArm part %s not found for %s. Equipping placeholder.\n", partsConfig.LeftArm, medarot.ID)
+			log.Printf("Warning: LeftArm part %s not found for %s. Equipping placeholder.\n", partsConfig.LeftArm, medarot.ID)
 			medarot.Parts["leftArm"] = &Part{ID: "placeholder", Name: "Missing LARM", Slot: "leftArm", IsBroken: true, MaxHP: 1, HP: 1}
 		}
 		if p := findPartByID(gameData.AllParts["legs"], partsConfig.Legs); p != nil {
 			medarot.Parts["legs"] = p
 		} else {
-			fmt.Printf("Warning: Legs part %s not found for %s. Equipping placeholder.\n", partsConfig.Legs, medarot.ID)
+			log.Printf("Warning: Legs part %s not found for %s. Equipping placeholder.\n", partsConfig.Legs, medarot.ID)
 			medarot.Parts["legs"] = &Part{ID: "placeholder", Name: "Missing Legs", Slot: "legs", IsBroken: true, MaxHP: 1, HP: 1}
 		}
 		teamMedarots = append(teamMedarots, medarot)
@@ -178,24 +168,29 @@ func createMedarotTeam(teamID string, teamBaseSpeed float64, gameData *GameData,
 func InitializeAllMedarots(gameData *GameData) []*Medarot {
 	var allMedarots []*Medarot
 
-	// Base speeds from JS CONFIG (can be constants or configurable later)
 	const team1BaseSpeed = 1.0
 	const team2BaseSpeed = 0.9
 
+	// ★★★ 修正点4: `TeamID` 型の定数を渡す ★★★
 	team1Medarots := createMedarotTeam(Team1, team1BaseSpeed, gameData, true)
 	allMedarots = append(allMedarots, team1Medarots...)
 
+	// ★★★ 修正点4: `TeamID` 型の定数を渡す ★★★
 	team2Medarots := createMedarotTeam(Team2, team2BaseSpeed, gameData, false)
 	allMedarots = append(allMedarots, team2Medarots...)
-	
-	fmt.Printf("Initialized %d medarots in total.\n", len(allMedarots))
+
+	log.Printf("Initialized %d medarots in total.", len(allMedarots))
 	for _, m := range allMedarots {
-		fmt.Printf("  - %s (%s), Leader: %t, Speed: %.2f, Medal: %s\n", m.Name, m.Team, m.IsLeader, m.Speed, m.Medal.Name)
+		teamStr := "Team1"
+		if m.Team == Team2 {
+			teamStr = "Team2"
+		}
+		log.Printf("  - %s (%s), Leader: %t, Speed: %.2f, Medal: %s", m.Name, teamStr, m.IsLeader, m.Speed, m.Medal.Name)
 		for slot, part := range m.Parts {
 			if part != nil {
-				fmt.Printf("    %s: %s (HP: %d/%d, CHG: %d, CD: %d)\n", slot, part.Name, part.HP, part.MaxHP, part.Charge, part.Cooldown)
+				log.Printf("    %s: %s (HP: %d/%d, CHG: %d, CD: %d)", slot, part.Name, part.HP, part.MaxHP, part.Charge, part.Cooldown)
 			} else {
-				fmt.Printf("    %s: <NONE>\n", slot)
+				log.Printf("    %s: <NONE>", slot)
 			}
 		}
 	}
