@@ -6,7 +6,6 @@ import (
 	"log"
 	"math/rand"
 	"sort"
-	// "strings" // stringsは不要になったので削除
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
@@ -69,7 +68,7 @@ type GameState int
 const (
 	StatePlaying GameState = iota
 	StatePlayerActionSelect
-	GameStateMessage // ★★★ メッセージ表示・クリック待ちの状態を追加
+	GameStateMessage
 )
 
 type TeamID int
@@ -88,8 +87,6 @@ type Game struct {
 	State      GameState
 	PlayerTeam TeamID
 	actionQueue []*Medarot
-
-	// ★★★ メッセージウィンドウ用のフィールドを追加
 	message             string
 	postMessageCallback func()
 }
@@ -182,10 +179,8 @@ func (g *Game) updatePlaying() {
 				g.handleAIAction(medarot)
 			}
 		case StateReadyToExecuteAction:
-			// ★★★ Found a medarot ready to act. Pause the game to show the message.
 			g.setupActionExecution(medarot)
-			// Return here to process only one action at a time.
-			return
+			return 
 		}
 	}
 }
@@ -203,17 +198,34 @@ func (g *Game) updatePlayerActionSelect() {
 	currentMedarot := g.actionQueue[0]
 	availableParts := currentMedarot.GetAvailableAttackParts()
 	mx, my := ebiten.CursorPosition()
-	for i, part := range availableParts {
+	for i, selectedPart := range availableParts {
 		buttonX := float32(ScreenWidth/2 - 150)
 		buttonY := float32(ScreenHeight/2 - 50 + 40*i)
 		buttonW, buttonH := float32(300), float32(35)
 
 		if float32(mx) >= buttonX && float32(mx) < buttonX+buttonW &&
 			float32(my) >= buttonY && float32(my) < buttonY+buttonH {
+
+			targetCandidates := g.getTargetCandidates(currentMedarot)
+			if len(targetCandidates) > 0 {
+				if selectedPart.ActionType == "shoot" {
+					chosenTarget := targetCandidates[rand.Intn(len(targetCandidates))]
+					currentMedarot.TargetedMedarot = chosenTarget
+					log.Printf("Player %s (%s) targeting %s for %s action", currentMedarot.Name, currentMedarot.Medal.Personality, chosenTarget.Name, selectedPart.Name)
+				} else {
+					currentMedarot.TargetedMedarot = nil 
+				}
+			} else {
+				log.Printf("Player %s (%s) has no valid targets for %s.", currentMedarot.Name, currentMedarot.Medal.Personality, selectedPart.Name)
+				currentMedarot.TargetedMedarot = nil
+			}
 			
-			log.Printf("Player selected: %s for %s", part.Name, currentMedarot.Name)
-			currentMedarot.SelectAction(part.Slot)
-			g.actionQueue = g.actionQueue[1:]
+			log.Printf("Player selected: %s for %s", selectedPart.Name, currentMedarot.Name)
+			if currentMedarot.SelectAction(selectedPart.Slot) {
+				g.actionQueue = g.actionQueue[1:]
+			} else {
+				log.Printf("Player %s action selection for %s failed.", currentMedarot.Name, selectedPart.Name)
+			}
 
 			if len(g.actionQueue) == 0 {
 				g.State = StatePlaying
@@ -226,54 +238,125 @@ func (g *Game) updatePlayerActionSelect() {
 // updateMessage handles input while a message is displayed.
 func (g *Game) updateMessage() {
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		g.State = StatePlaying // Resume the game.
+		g.State = StatePlaying 
 		if g.postMessageCallback != nil {
-			g.postMessageCallback() // Execute the registered action.
+			g.postMessageCallback() 
 		}
 	}
 }
 
 // setupActionExecution starts the message flow for an action.
 func (g *Game) setupActionExecution(medarot *Medarot) {
-	// Ensure the part key is valid before proceeding
 	part, ok := medarot.Parts[medarot.SelectedPartKey]
 	if !ok || part == nil {
-		// This can happen if the part was destroyed after action selection.
-		// Silently fail the action and return the medarot to a ready state.
 		medarot.State = StateReadyToSelectAction
 		medarot.Gauge = 0
 		return
 	}
 	partName := part.Name
 	
-	// Define the action to be taken AFTER the first message is dismissed.
 	executeCallback := func() {
-		success := medarot.ExecuteAction()
+		success := medarot.ExecuteAction(g) // Pass game instance
 		
 		resultMessage := ""
+		targetName := ""
+		if medarot.TargetedMedarot != nil {
+			targetName = " (ターゲット: " + medarot.TargetedMedarot.Name + ")"
+		}
+
 		if success {
-			resultMessage = fmt.Sprintf("%s の攻撃は成功した！", medarot.Name)
+			resultMessage = fmt.Sprintf("%s の %s%s は成功した！", medarot.Name, partName, targetName)
 		} else {
-			resultMessage = fmt.Sprintf("%s の行動は失敗した...", medarot.Name)
+			resultMessage = fmt.Sprintf("%s の %s%s は失敗した...", medarot.Name, partName, targetName)
 		}
 		
-		// Show the result message. After this message, do nothing (callback is nil).
 		g.showMessage(resultMessage, nil)
 	}
 	
-	// Show the initial "Attack!" message.
-	g.showMessage(fmt.Sprintf("%s の %s！", medarot.Name, partName), executeCallback)
+	actionVerb := part.ActionType
+	// 日本語表示の調整は任意
+	// if part.ActionType == "shoot" { actionVerb = "射撃" }
+	// if part.ActionType == "fight" { actionVerb = "格闘" }
+
+	targetInfo := ""
+	// For fight actions, target is determined at execution, so don't show it here.
+	if part.ActionType == "shoot" && medarot.TargetedMedarot != nil {
+		targetInfo = fmt.Sprintf(" -> %s", medarot.TargetedMedarot.Name)
+	} else if part.ActionType == "fight" {
+		targetInfo = " (最も近い敵へ)" // Indicate fight targeting behavior
+	}
+
+	g.showMessage(fmt.Sprintf("%s の %s (%s)%s！", medarot.Name, partName, actionVerb, targetInfo), executeCallback)
 }
 
 // handleAIAction encapsulates the AI's action selection logic.
 func (g *Game) handleAIAction(medarot *Medarot) {
 	availableParts := medarot.GetAvailableAttackParts()
-	if len(availableParts) > 0 {
-		selectedPart := availableParts[rand.Intn(len(availableParts))]
-		log.Printf("AI: %s selected %s.", medarot.Name, selectedPart.Name)
-		medarot.SelectAction(selectedPart.Slot)
+	if len(availableParts) == 0 {
+		return 
 	}
+
+	selectedPart := availableParts[rand.Intn(len(availableParts))]
+	
+	targetCandidates := g.getTargetCandidates(medarot)
+	if len(targetCandidates) > 0 {
+		// TODO: Implement personality-based targeting. For now, random.
+		chosenTarget := targetCandidates[rand.Intn(len(targetCandidates))]
+		medarot.TargetedMedarot = chosenTarget
+		log.Printf("AI: %s (%s) selected %s, targeting %s for %s action.", medarot.Name, medarot.Medal.Personality, selectedPart.Name, chosenTarget.Name, selectedPart.ActionType)
+	} else {
+		log.Printf("AI: %s (%s) selected %s, but no valid targets.", medarot.Name, medarot.Medal.Personality, selectedPart.Name)
+		medarot.TargetedMedarot = nil
+	}
+
+	medarot.SelectAction(selectedPart.Slot)
 }
+
+// getTargetCandidates returns a list of potential targets for the actingMedarot.
+func (g *Game) getTargetCandidates(actingMedarot *Medarot) []*Medarot {
+	candidates := []*Medarot{}
+	opponentTeam := Team2 
+	if actingMedarot.Team == Team2 {
+		opponentTeam = Team1
+	}
+
+	for _, m := range g.Medarots {
+		if m.Team == opponentTeam && m.State != StateBroken {
+			candidates = append(candidates, m)
+		}
+	}
+	return candidates
+}
+
+// findClosestOpponent finds the living opponent Medarot closest to the actingMedarot on the X-axis.
+func (g *Game) findClosestOpponent(actingMedarot *Medarot) *Medarot {
+	var closestOpponent *Medarot
+	minDistance := float32(-1.0) // Using -1 to indicate no opponent found yet, or use math.MaxFloat32
+
+	opponentTeam := Team2
+	if actingMedarot.Team == Team2 {
+		opponentTeam = Team1
+	}
+
+	actingMedarotX := g.calculateIconX(actingMedarot)
+
+	for _, opponent := range g.Medarots {
+		if opponent.Team == opponentTeam && opponent.State != StateBroken {
+			opponentX := g.calculateIconX(opponent)
+			distance := actingMedarotX - opponentX
+			if distance < 0 {
+				distance = -distance // Absolute distance
+			}
+
+			if closestOpponent == nil || distance < minDistance {
+				minDistance = distance
+				closestOpponent = opponent
+			}
+		}
+	}
+	return closestOpponent
+}
+
 
 // Draw renders the game screen.
 func (g *Game) Draw(screen *ebiten.Image) {
@@ -282,7 +365,6 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	g.drawMedarotIcons(screen)
 	g.drawInfoPanels(screen)
 
-	// Draw UI based on the current game state.
 	if g.State == StatePlayerActionSelect && len(g.actionQueue) > 0 {
 		g.drawActionModal(screen, g.actionQueue[0])
 	} else if g.State == GameStateMessage {
@@ -336,7 +418,7 @@ func (g *Game) drawActionModal(screen *ebiten.Image, medarot *Medarot) {
 		buttonY := float32(ScreenHeight/2 - 50 + 40*i)
 		buttonW, buttonH := float32(300), float32(35)
 		vector.StrokeRect(screen, buttonX, buttonY, buttonW, buttonH, 1, FontColor, true)
-		partStr := fmt.Sprintf("%s (%s)", part.Name, part.Slot)
+		partStr := fmt.Sprintf("%s (%s) [%s]", part.Name, part.Slot, part.ActionType) // ActionType を表示
 		text.Draw(screen, partStr, MplusFont, int(buttonX+10), int(buttonY+22), FontColor)
 	}
 }
@@ -353,40 +435,82 @@ func (g *Game) drawBattlefield(screen *ebiten.Image) {
 }
 
 func (g *Game) drawMedarotIcons(screen *ebiten.Image) {
-	team1Count, team2Count := 0, 0
-	for _, medarot := range g.Medarots {
+	team1Indices := make(map[string]int)
+	team2Indices := make(map[string]int)
+	// 事前に各メダロットのチーム内でのインデックスを計算
+	// Y座標の計算に関わるためソートする
+	// ただし、元のg.Medarotsのスライスを変更しないようにコピーを作成してソートする
+	sortedMedarotsForYCalc := make([]*Medarot, len(g.Medarots))
+	copy(sortedMedarotsForYCalc, g.Medarots)
+	sort.Slice(sortedMedarotsForYCalc, func(i, j int) bool { 
+		if sortedMedarotsForYCalc[i].Team != sortedMedarotsForYCalc[j].Team {
+			return sortedMedarotsForYCalc[i].Team < sortedMedarotsForYCalc[j].Team
+		}
+		// IDでソートして、チーム内での順序を一意に決定する
+		// これにより、メダロットの追加/削除があっても、生存しているメダロットの表示順が安定する
+		return sortedMedarotsForYCalc[i].ID < sortedMedarotsForYCalc[j].ID 
+	})
+
+	currentTeam1Count := 0
+	currentTeam2Count := 0
+	for _, m := range sortedMedarotsForYCalc { // ソート済みのスライスを使用してインデックスをマップに格納
+		if m.Team == Team1 {
+			team1Indices[m.ID] = currentTeam1Count
+			currentTeam1Count++
+		} else {
+			team2Indices[m.ID] = currentTeam2Count
+			currentTeam2Count++
+		}
+	}
+
+	for _, medarot := range g.Medarots { // 元のg.Medarotsの順序でアイコンを描画
 		var yIndex int
 		if medarot.Team == Team1 {
-			yIndex = team1Count
-			team1Count++
+			yIndex = team1Indices[medarot.ID] // マップから正しいインデックスを取得
 		} else {
-			yIndex = team2Count
-			team2Count++
+			yIndex = team2Indices[medarot.ID] // マップから正しいインデックスを取得
 		}
+
 		baseYPos := MedarotVerticalSpacing * float32(yIndex+1)
 		currentX := g.calculateIconX(medarot)
-		if currentX < float32(IconRadius) {
-			currentX = float32(IconRadius)
-		}
-		if currentX > float32(ScreenWidth-IconRadius) {
-			currentX = float32(ScreenWidth - IconRadius)
-		}
+		if currentX < float32(IconRadius) { currentX = float32(IconRadius) }
+		if currentX > float32(ScreenWidth-IconRadius) { currentX = float32(ScreenWidth - IconRadius) }
+		
 		iconColor := Team1Color
-		if medarot.Team == Team2 {
-			iconColor = Team2Color
-		}
-		if medarot.State == StateBroken {
-			iconColor = BrokenColor
-		}
+		if medarot.Team == Team2 { iconColor = Team2Color }
+		if medarot.State == StateBroken { iconColor = BrokenColor }
 		vector.DrawFilledCircle(screen, currentX, baseYPos, float32(IconRadius), iconColor, true)
 		if medarot.IsLeader {
 			vector.StrokeCircle(screen, currentX, baseYPos, float32(IconRadius+2), 2, LeaderColor, true)
+		}
+
+		// Display target line if any
+		if medarot.TargetedMedarot != nil && (medarot.State == StateActionCharging || medarot.State == StateReadyToExecuteAction) {
+			targetX := g.calculateIconX(medarot.TargetedMedarot)
+			var targetYIndex int
+			if medarot.TargetedMedarot.Team == Team1 {
+				targetYIndex = team1Indices[medarot.TargetedMedarot.ID]
+			} else {
+				targetYIndex = team2Indices[medarot.TargetedMedarot.ID]
+			}
+			targetYPos := MedarotVerticalSpacing * float32(targetYIndex+1)
+			
+			lineColor := color.RGBA{R: 255, G: 255, B: 0, A: 100} // Yellow, semi-transparent
+			if medarot.State == StateReadyToExecuteAction {
+				lineColor = color.RGBA{R: 255, G: 0, B: 0, A: 150} 
+			}
+			vector.StrokeLine(screen, currentX, baseYPos, targetX, targetYPos, 1, lineColor, false)
 		}
 	}
 }
 
 func (g *Game) drawInfoPanels(screen *ebiten.Image) {
 	team1InfoCount, team2InfoCount := 0, 0
+	// Y座標の安定のため、ここでもソートされた順で処理することを検討するが、
+	// MedarotInfoBlockのY座標は単純に上から詰めていくだけなので、
+	// g.Medarotsの元の順序でも問題ない可能性が高い。
+	// ただし、一貫性のため drawMedarotIcons と同様のソートアプローチを適用することも可能。
+	// 今回は元の順序のまま。
 	for _, medarot := range g.Medarots {
 		var panelX, panelY float32
 		if medarot.Team == Team1 {
