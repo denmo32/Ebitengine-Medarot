@@ -1,0 +1,51 @@
+実装仕様：データ構造 (CSV) - Final
+1. パーツデータ (parts.csv)
+
+このファイルで、ゲームに登場する全ての頭・腕・脚部パーツを管理します。
+columnName	dataType	description	example (狙い撃ちライフル腕)
+id	string	パーツを一意に識別するID	RA-002
+part_name	string	パーツの表示名	スナイパーライフル
+part_type	string	部位 (HEAD, R_ARM, L_ARM, LEG)	R_ARM
+action_trait	string	アクション特性 (NORMAL, AIM, STRIKE, BERSERK)	AIM
+weapon_type	string	武器の小区分 (RIFLE, SWORD, HAMMER, etc.)	RIFLE
+armor	int	装甲 (HP)	70
+power	int	威力	50
+defense	int	耐久 (ダメージ軽減)	5
+accuracy	int	命中	60
+mobility	int	機動 (脚部以外は0)	0
+propulsion	int	推進 (脚部以外は0)	0
+charge	int	充填速度	50
+cooldown	int	冷却速度	40
+drop_rate	float	ドロップ率 (0.0 to 1.0)	0.05
+price	int	売買価格	1200
+description	string	パーツの説明文	高精度な狙撃用ライフル。クリティカルを狙えるが隙も大きい。
+
+    action_traitの補足:
+
+        NORMAL: 通常攻撃 (撃つ など)
+
+        AIM: 狙い撃ち
+
+        STRIKE: 殴る
+
+        BERSERK: 我武者羅
+
+        支援・妨害系パーツの場合は SUPPORT, DEBUFFなどを追加していく。脚部や一部の頭パーツでは NONE などにする。
+
+2. メダルデータ (medals.csv)
+
+メダルの基本性能と、成長に関するデータを管理します。
+columnName	dataType	description	example (カブトメダル)
+id	string	メダルを一意に識別するID	MDL-001
+medal_name	string	メダルの表示名	カブトメダル
+personality	string	性格 (AIのターゲッティングに影響)	LEADER_AIM (リーダー狙い)
+compatibility	string	相性の良い武器種 (RIFLE, SWORD, etc.)	RIFLE
+base_exp	int	次のレベルまでに必要な基本経験値	100
+exp_factor	float	レベルアップごとに追加で必要になる経験値の係数	1.2
+description	string	メダルの説明文	射撃を得意とする、由緒正しいメダル。
+
+    熟練度について:
+
+        メダルごとの現在の熟練度（射撃、格闘など）やレベルは、セーブデータ側で管理します。このCSVは、あくまでメダルの「素体」のデータです。
+
+        （例: save_data.json の中に {"medal_id": "MDL-001", "level": 5, "shoot_exp": 1234, "strike_exp": 56} のように保存）
