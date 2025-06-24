@@ -2,353 +2,260 @@ package main
 
 import (
 	"fmt"
-	"image"
+	//"image"
 	"log"
-	"math/rand"
-	"sort"
+	//"math/rand"
+	// "sort" // ECSでは直接ソートされたリストをGame構造体で持たない想定
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+	"github.com/yohamta/donburi"
+	"github.com/yohamta/donburi/ecs"
+	"github.com/yohamta/donburi/filter" // ★ filter をインポート
+	"image/color"                       // ★ 追加
 )
 
+// Game はECS Worldとシステムを保持します。
+type Game struct {
+	World          donburi.World
+	ECS            *ecs.ECS
+	GameData       *GameData    // CSVからロードしたデータ
+	Config         *Config      // 設定ファイルからロードしたデータ
+	systems        []System     // 実行するシステムのリスト
+	renderSystems  []DrawSystem // ★ 型を []DrawSystem に変更
+	gameStateEntry *donburi.Entry
+}
+
+// System はUpdateメソッドを持つインターフェースです。
+type System interface {
+	Update(ecs *ecs.ECS)
+}
+
+// DrawSystem はDrawメソッドを持つインターフェースです。
+type DrawSystem interface {
+	Draw(ecs *ecs.ECS, screen *ebiten.Image)
+}
+
 // NewGame はゲームを初期化します
-func NewGame(gameData *GameData, config Config) *Game {
-	medarots := InitializeAllMedarots(gameData)
-	if len(medarots) == 0 {
-		log.Fatal("No medarots were initialized. Exiting.")
-	}
-	g := &Game{
-		Medarots:              medarots,
-		GameData:              gameData,
-		Config:                config,
-		TickCount:             0,
-		DebugMode:             true,
-		State:                 StatePlaying,
-		PlayerTeam:            Team1,
-		actionQueue:           make([]*Medarot, 0),
-		sortedMedarotsForDraw: make([]*Medarot, len(medarots)),
-		team1Leader:           nil,
-		team2Leader:           nil,
-	}
-	// リーダーをキャッシュ
-	for _, m := range medarots {
-		if m.IsLeader {
-			if m.Team == Team1 {
-				g.team1Leader = m
-			} else {
-				g.team2Leader = m
-			}
-		}
-	}
-	// ソート済みリストの作成とDrawIndexの割り当て
-	sortedMedarots := make([]*Medarot, len(medarots))
-	copy(sortedMedarots, medarots)
-	sort.Slice(sortedMedarots, func(i, j int) bool {
-		if sortedMedarots[i].Team != sortedMedarots[j].Team {
-			return sortedMedarots[i].Team < sortedMedarots[j].Team
-		}
-		return sortedMedarots[i].ID < sortedMedarots[j].ID
+func NewGame(gameData *GameData, appConfig Config) *Game {
+	world := donburi.NewWorld()
+	gameECS := ecs.NewECS(world)
+
+	// グローバルなゲーム状態と設定を保持するシングルトンエンティティを作成
+	gameStateEntity := world.Create(GameStateComponentType, ConfigComponentType, PlayerActionSelectComponentType)
+	gameStateEntry := world.Entry(gameStateEntity)
+
+	GameStateComponentType.SetValue(gameStateEntry, GameStateComponent{
+		TickCount:    0,
+		CurrentState: StatePlaying,
+		PlayerTeam:   Team1,
+		DebugMode:    true,
 	})
-	team1Count, team2Count := 0, 0
-	for _, m := range sortedMedarots {
-		if m.Team == Team1 {
-			m.DrawIndex = team1Count
-			team1Count++
-		} else {
-			m.DrawIndex = team2Count
-			team2Count++
-		}
+	ConfigComponentType.SetValue(gameStateEntry, ConfigComponent{
+		GameConfig: &appConfig,
+		GameData:   gameData,
+	})
+	PlayerActionSelectComponentType.SetValue(gameStateEntry, PlayerActionSelectComponent{})
+
+	// メダロットエンティティを初期化
+	InitializeAllMedarotEntities(world, gameData)
+
+	// TODO: この時点でMedarotsのスライスは不要になるはず。
+	// sortedMedarotsForDraw や team1Leader/team2Leader もECSのクエリで代替する。
+	// actionQueueもPlayerActionSelectComponentやシステム内で管理する。
+
+	g := &Game{
+		World:          world,
+		ECS:            gameECS,
+		GameData:       gameData,
+		Config:         &appConfig,
+		gameStateEntry: gameStateEntry,
 	}
-	g.sortedMedarotsForDraw = sortedMedarots
+
+	// システムを登録
+	g.AddSystem(NewPlayerInputSystem())
+	g.AddSystem(NewAISystem())
+	g.AddSystem(NewGaugeUpdateSystem())
+	g.AddSystem(NewActionExecutionSystem())
+	// Note: NewMovementSystem, NewDamageSystem, NewStateTransitionSystem are not yet implemented
+	// or their logic is partially integrated into other systems for now.
+	g.AddSystem(NewGameRuleSystem())
+	g.AddSystem(NewMessageSystem())
+	g.AddSystem(NewRenderSystem())
+
+	log.Println("Game instance created with ECS and systems registered.")
+	if countMedarotEntities(world) == 0 {
+		log.Fatal("Game initialized with no Medarot entities.")
+	}
+
 	return g
 }
 
+func countMedarotEntities(w donburi.World) int {
+	query := donburi.NewQuery(filter.Contains(IdentityComponentType)) // ★ filter.Contains を使用
+	count := 0
+	query.Each(w, func(entry *donburi.Entry) {
+		count++
+	})
+	return count
+}
+
+// AddSystem はゲームにシステムを追加します。
+// DrawSystemインターフェースを実装していれば、renderSystemsにも追加します。
+func (g *Game) AddSystem(system System) {
+	g.systems = append(g.systems, system)
+	if drawSystem, ok := system.(DrawSystem); ok {
+		if g.renderSystems == nil {
+			g.renderSystems = make([]DrawSystem, 0) // ★ []DrawSystem に変更
+		}
+		g.renderSystems = append(g.renderSystems, drawSystem)
+		log.Printf("Added DrawSystem: %T", drawSystem)
+	}
+}
+
+// AddRenderSystem は描画専用システムを登録します (AddSystemと役割が被るなら不要)
+// 今回はAddSystemにDrawSystemの判定を入れたので、このメソッドは不要。
+// func (g *Game) AddRenderSystem(system DrawSystem) {
+// 	if g.renderSystems == nil {
+// 		g.renderSystems = make([]DrawSystem, 0)
+// 	}
+// 	g.renderSystems = append(g.renderSystems, system)
+// 	log.Printf("Added RenderSystem: %T", system)
+// }
+
 // Update はゲームのメインループです
 func (g *Game) Update() error {
-	if g.State == GameStateOver {
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			cursorPos := image.Pt(ebiten.CursorPosition())
-			// ★ getResetButtonRect は renderer.go に移動したので、g を渡す
-			if cursorPos.In(getResetButtonRect(g)) {
-				g.restartRequested = true
-			}
-		}
-		if g.restartRequested {
-			newG := NewGame(g.GameData, g.Config)
-			*g = *newG
-		}
-		return nil
+	// GameStateシングルトンエンティティを取得
+	if g.gameStateEntry == nil || !g.gameStateEntry.Valid() {
+		return fmt.Errorf("gameStateEntry is not initialized")
 	}
+	gs := GameStateComponentType.Get(g.gameStateEntry)
+
+	// デバッグモードの切り替えは常時受け付ける
 	if inpututil.IsKeyJustPressed(ebiten.KeyD) {
-		g.DebugMode = !g.DebugMode
+		gs.DebugMode = !gs.DebugMode
 	}
-	g.TickCount++
-	switch g.State {
+
+	// ゲームの状態に応じて、実行するロジックを完全に分離する
+	switch gs.CurrentState {
 	case StatePlaying:
-		g.updatePlaying()
+		// === ゲーム進行中の処理 ===
+		// 1. ルールチェック (勝敗判定)
+		g.getSystem(&GameRuleSystem{}).Update(g.ECS)
+		// GameRuleSystemが状態をOverに変えたら、即座にこのフレームの処理を中断
+		if GameStateComponentType.Get(g.gameStateEntry).CurrentState == GameStateOver {
+			return nil
+		}
+
+		// 2. アクションの実行
+		g.getSystem(&ActionExecutionSystem{}).Update(g.ECS)
+
+		// 3. AIとプレイヤーの行動選択準備
+		g.getSystem(&AISystem{}).Update(g.ECS)
+		g.getSystem(&PlayerInputSystem{}).Update(g.ECS)
+
+		// 4. 最後にゲージを更新
+		g.getSystem(&GaugeUpdateSystem{}).Update(g.ECS)
+
 	case StatePlayerActionSelect:
-		g.updatePlayerActionSelect()
+		// === プレイヤー行動選択中の処理 ===
+		// プレイヤー入力システムのみを実行
+		g.getSystem(&PlayerInputSystem{}).Update(g.ECS)
+
 	case GameStateMessage:
-		g.updateMessage()
+		// === メッセージ表示中の処理 ===
+		// メッセージを進めるシステムのみを実行
+		g.getSystem(&MessageSystem{}).Update(g.ECS)
+
+	case GameStateOver:
+		// === ゲームオーバー時の処理 ===
+		// クリックでリスタート要求フラグを立てる
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			gs.RestartRequested = true
+		}
 	}
+
+	// ティックカウントは状態に関わらず更新
+	gs.TickCount++
+
+	// 最後に、変更された可能性のあるコンポーネントデータを書き戻す
+	GameStateComponentType.Set(g.gameStateEntry, gs)
+
+	// リスタート要求があれば、Terminationの代わりに特別なエラーを返す
+	if gs.RestartRequested {
+		// NewGameを呼び出して自身をリセットする
+		log.Println("Restarting game...")
+		*g = *NewGame(g.GameData, *g.Config)
+		// gs.RestartRequestedをfalseに戻す
+		gs = GameStateComponentType.Get(g.gameStateEntry)
+		gs.RestartRequested = false
+		GameStateComponentType.Set(g.gameStateEntry, gs)
+	}
+
 	return nil
 }
 
-// showMessage はメッセージ表示状態に移行します
+// g.systemsスライスから特定の型のシステムを取得するヘルパーメソッド
+func (g *Game) getSystem(target System) System {
+	for _, s := range g.systems {
+		// 型を比較して一致するシステムを返す
+		if fmt.Sprintf("%T", s) == fmt.Sprintf("%T", target) {
+			return s
+		}
+	}
+	return nil // 見つからなかった場合
+}
+
+// showMessage はメッセージ表示状態に移行します (GameStateComponentを更新)
+// この関数は外部 (main.goなど) や、ECSのシステムに直接アクセスできない古いコードから
+// ゲームの状態を変更するために残すこともできますが、理想的にはシステム内で完結すべきです。
+// 今回はActionExecutionSystem内のshowGameMessageヘルパーに類似ロジックを移譲しています。
+// グローバルなshowMessageは不要になるかもしれません。
+/*
 func (g *Game) showMessage(msg string, callback func()) {
-	g.message = msg
-	g.postMessageCallback = callback
-	g.State = GameStateMessage
+	gs := GameStateData.Get(g.gameStateEntry)
+	gs.Message = msg
+	gs.PostMessageCallback = callback
+	gs.CurrentState = GameStateMessage
+	GameStateData.Set(g.gameStateEntry, gs)
 }
+*/
 
-// updatePlaying はプレイ中のロジックを処理します
-func (g *Game) updatePlaying() {
-	for _, medarot := range g.Medarots {
-		// ▼▼▼ このチェックを追加 ▼▼▼
-		if medarot.State == StateBroken {
-			continue // 機能停止している機体は以降の処理をスキップ
-		}
-		medarot.Update(g.Config.Balance)
-		g.checkAndHandleMedarotState(medarot)
-	}
-	g.checkGameEnd()
-	g.tryEnterActionSelect()
-}
-
-// checkAndHandleMedarotState は各メダロットの状態を確認し、必要な処理を呼び出します
-func (g *Game) checkAndHandleMedarotState(medarot *Medarot) {
-	if medarot.State == StateReadyToExecuteAction {
-		g.setupActionExecution(medarot)
-		return
-	}
-	g.queueUpActionableMedarot(medarot)
-}
-
-// queueUpActionableMedarot は行動可能なメダロットをキューに追加します
-func (g *Game) queueUpActionableMedarot(medarot *Medarot) {
-	if medarot.State != StateReadyToSelectAction {
-		return
-	}
-	for _, m := range g.actionQueue {
-		if m.ID == medarot.ID {
-			return
-		}
-	}
-	if medarot.Team == g.PlayerTeam {
-		g.actionQueue = append(g.actionQueue, medarot)
-	} else {
-		g.handleAIAction(medarot)
-	}
-}
-
-// selectAutomaticTarget は、指定されたメダロットの攻撃対象を自動で1体選定します。
-// AIのターゲット選定と、プレイヤーの仮ターゲット選定の両方で使われます。
-func (g *Game) selectAutomaticTarget(actingMedarot *Medarot) *Medarot {
-	candidates := g.getTargetCandidates(actingMedarot)
-	if len(candidates) == 0 {
-		return nil
-	}
-
-	// === 将来のAI拡張はここを修正 ===
-	// 例: リーダーを優先的に狙うAIロジック
-	/*
-	   for _, c := range candidates {
-	       if c.IsLeader {
-	           return c // リーダーがいれば最優先で返す
-	       }
-	   }
-	*/
-	// === AI拡張ここまで ===
-
-	// デフォルトの動作: 候補の中からランダムに1体を選ぶ
-	return candidates[rand.Intn(len(candidates))]
-}
-
-// tryEnterActionSelect はプレイヤーの行動選択状態に移行できるか試みます
-func (g *Game) tryEnterActionSelect() {
-	if g.State == StatePlaying && len(g.actionQueue) > 0 {
-		// ▼▼▼ この部分を修正 ▼▼▼
-		actingMedarot := g.actionQueue[0]
-		g.playerActionTarget = g.selectAutomaticTarget(actingMedarot)
-		g.State = StatePlayerActionSelect
-		// ▲▲▲ ここまで ▲▲▲
-	}
-}
-
-// updatePlayerActionSelect はプレイヤーの行動選択を処理します
-func (g *Game) updatePlayerActionSelect() {
-	if len(g.actionQueue) == 0 {
-		g.State = StatePlaying
-		g.playerActionTarget = nil
-		return
-	}
-	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		return
-	}
-	currentMedarot := g.actionQueue[0]
-	availableParts := currentMedarot.GetAvailableAttackParts()
-	mx, my := ebiten.CursorPosition()
-	for i, part := range availableParts {
-		btnW := g.Config.UI.ActionModal.ButtonWidth
-		btnH := g.Config.UI.ActionModal.ButtonHeight
-		btnSpacing := g.Config.UI.ActionModal.ButtonSpacing
-		buttonX := g.Config.UI.Screen.Width/2 - int(btnW/2)
-		buttonY := g.Config.UI.Screen.Height/2 - 50 + (int(btnH)+int(btnSpacing))*i
-		buttonRect := image.Rect(buttonX, buttonY, buttonX+int(btnW), buttonY+int(btnH))
-		if (image.Point{X: mx, Y: my}).In(buttonRect) {
-			// ▼▼▼ このチェックを追加 ▼▼▼
-			if g.playerActionTarget == nil || g.playerActionTarget.State == StateBroken {
-				log.Println("Action cancelled: Target is invalid or already broken.")
-				// ここでゲームを StatePlaying に戻すか、メッセージを出すかはお好みで
-				g.State = StatePlaying
-				return
-			}
-			// ▲▲▲ ここまで ▲▲▲
-
-			// ▼▼▼ 先にターゲットを設定する ▼▼▼
-			currentMedarot.TargetedMedarot = g.playerActionTarget
-			if currentMedarot.TargetedMedarot == nil && part.Category == CategoryShoot {
-				// ターゲットがいない場合は何もしないか、フィードバックを出す
-				log.Println("Cannot select shooting part without a target.")
-				// ターゲットをnilに戻しておく（任意だが、安全のため）
-				currentMedarot.TargetedMedarot = nil
-				return
-			}
-			var slotKey PartSlotKey
-			switch part.Type {
-			case PartTypeHead:
-				slotKey = PartSlotHead
-			case PartTypeRArm:
-				slotKey = PartSlotRightArm
-			case PartTypeLArm:
-				slotKey = PartSlotLeftArm
-			}
-			if currentMedarot.SelectAction(slotKey) {
-				g.actionQueue = g.actionQueue[1:]
-			}
-			if len(g.actionQueue) == 0 {
-				g.State = StatePlaying
-				g.playerActionTarget = nil
-			}
-			return
-		}
-	}
-}
-
-// updateMessage はメッセージ表示中のクリックを処理します
-func (g *Game) updateMessage() {
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		if g.postMessageCallback != nil {
-			g.postMessageCallback()
-		} else {
-			g.State = StatePlaying
-		}
-	}
-}
-
-// setupActionExecution は行動実行のメッセージフローを開始します
-func (g *Game) setupActionExecution(medarot *Medarot) {
-	part := medarot.GetPart(medarot.SelectedPartKey)
-	if part == nil {
-		medarot.ChangeState(StateReadyToSelectAction)
-		return
-	}
-	executeCallback := func() {
-		opponents := g.getTargetCandidates(medarot)
-		medarot.ExecuteAction(g.Config.Balance, opponents)
-		nextCallback := func() {
-			g.State = StatePlaying
-		}
-		g.showMessage(medarot.LastActionLog, nextCallback)
-	}
-	actionVerb := string(part.Category)
-	targetInfo := ""
-	if part.Category == CategoryShoot && medarot.TargetedMedarot != nil {
-		targetInfo = fmt.Sprintf(" -> %s", medarot.TargetedMedarot.Name)
-	}
-	g.showMessage(fmt.Sprintf("%s: %s (%s)%s！", medarot.Name, part.PartName, actionVerb, targetInfo), executeCallback)
-}
-
-// handleAIAction はAIの行動選択を処理します
-func (g *Game) handleAIAction(medarot *Medarot) {
-	if medarot.State != StateReadyToSelectAction {
-		return
-	}
-	availableParts := medarot.GetAvailableAttackParts()
-	if len(availableParts) == 0 {
-		return
-	}
-	selectedPart := availableParts[rand.Intn(len(availableParts))]
-
-	// ▼▼▼ この部分を修正 ▼▼▼
-	medarot.TargetedMedarot = g.selectAutomaticTarget(medarot)
-	if medarot.TargetedMedarot == nil && selectedPart.Category == CategoryShoot {
-		// 射撃パーツなのにターゲットがいない場合は何もしない
-		return
-	}
-	// ▲▲▲ ここまで ▲▲▲
-
-	var slotKey PartSlotKey
-	switch selectedPart.Type {
-	case PartTypeHead:
-		slotKey = PartSlotHead
-	case PartTypeRArm:
-		slotKey = PartSlotRightArm
-	case PartTypeLArm:
-		slotKey = PartSlotLeftArm
-	}
-	medarot.SelectAction(slotKey)
-}
-
-// getTargetCandidates は攻撃対象の候補を返します
-func (g *Game) getTargetCandidates(actingMedarot *Medarot) []*Medarot {
-	candidates := []*Medarot{}
-	var opponentTeamID TeamID = Team2
-	if actingMedarot.Team == Team2 {
-		opponentTeamID = Team1
-	}
-	for _, m := range g.Medarots {
-		if m.Team == opponentTeamID && m.State != StateBroken {
-			candidates = append(candidates, m)
-		}
-	}
-	return candidates
-}
-
-// checkGameEnd はゲームの終了を判定します
-func (g *Game) checkGameEnd() {
-	if g.State == GameStateOver {
-		return
-	}
-	if g.team1Leader != nil && g.team1Leader.State == StateBroken {
-		g.winner = Team2
-		g.State = GameStateOver
-		g.message = "チーム2の勝利！"
-	} else if g.team2Leader != nil && g.team2Leader.State == StateBroken {
-		g.winner = Team1
-		g.State = GameStateOver
-		g.message = "チーム1の勝利！"
-	}
-}
+// 古い updateXXX 関数群はsystemsに移行したため不要。
 
 // Draw はゲーム画面を描画します
 func (g *Game) Draw(screen *ebiten.Image) {
-	screen.Fill(g.Config.UI.Colors.Background)
-	drawBattlefield(screen, g)
-	drawMedarotIcons(screen, g)
-	drawInfoPanels(screen, g)
-	if g.State == StatePlayerActionSelect && len(g.actionQueue) > 0 {
-		drawActionModal(screen, g) // g.actionQueue[0] は renderer 側で参照
-	} else if g.State == GameStateMessage || g.State == GameStateOver {
-		drawMessageWindow(screen, g)
-	}
-	if g.DebugMode {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Tick: %d | State: %v", g.TickCount, g.State), 10, g.Config.UI.Screen.Height-15)
+	// RenderSystemが登録されていれば、それが全ての描画を担当します。
+	if len(g.renderSystems) > 0 {
+		for _, system := range g.renderSystems {
+			// AddSystemでDrawSystem型アサーション済みなので、再度チェックは理論上不要だが念のため。
+			if drawSystem, ok := system.(DrawSystem); ok {
+				drawSystem.Draw(g.ECS, screen)
+			}
+		}
+	} else {
+		// RenderSystemが登録されていない場合のフォールバック/エラー表示
+		screen.Fill(color.RGBA{R: 255, G: 0, B: 255, A: 255}) // Magenta to indicate error
+		if MplusFont != nil {                                 // MplusFontがロードされていればエラーメッセージ表示
+			ebitenutil.DebugPrintAt(screen, "Error: RenderSystem not found!", 10, 10)
+		}
+		log.Println("Error in Game.Draw: No render systems available.")
 	}
 }
 
 // Layout は画面レイアウトを定義します
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
-	return g.Config.UI.Screen.Width, g.Config.UI.Screen.Height
+	// gameStateEntryがnilチェックも追加（NewGame完了前に呼ばれる可能性は低いが念のため）
+	if g.gameStateEntry == nil {
+		log.Println("Warning: gameStateEntry is nil in Layout. Using default size.")
+		return 640, 480
+	}
+	configComp := ConfigComponentType.Get(g.gameStateEntry) // ConfigComponentType を使用
+	if configComp != nil && configComp.GameConfig != nil {
+		return configComp.GameConfig.UI.Screen.Width, configComp.GameConfig.UI.Screen.Height
+	}
+	// フォールバック値（あるいはエラーハンドリング）
+	log.Println("Warning: ConfigComponent or GameConfig not fully initialized for Layout. Using default size.")
+	return 640, 480
 }
