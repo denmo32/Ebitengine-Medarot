@@ -14,15 +14,31 @@ func NewMedarot(id, name string, team TeamID, medal *Medal, isLeader bool) *Meda
 		Name:     name,
 		Team:     team,
 		Medal:    medal,
-		Parts:    make(map[string]*Part),
+		Parts:    make(map[PartSlotKey]*Part),
 		IsLeader: isLeader,
 		State:    StateReadyToSelectAction,
 		Gauge:    100.0,
 	}
 }
 
+// ChangeState は状態遷移とそれに伴う初期化処理を行います。
+func (m *Medarot) ChangeState(newState MedarotState) {
+	m.State = newState
+	switch newState {
+	case StateReadyToSelectAction:
+		m.Gauge = 100.0
+		m.SelectedPartKey = ""
+		m.IsEvasionDisabled = false
+		m.IsDefenseDisabled = false
+	case StateActionCharging, StateActionCooldown:
+		m.Gauge = 0
+	case StateBroken:
+		m.Gauge = 0
+	}
+}
+
 // GetPart はパーツを取得します。
-func (m *Medarot) GetPart(slotKey string) *Part {
+func (m *Medarot) GetPart(slotKey PartSlotKey) *Part {
 	part, exists := m.Parts[slotKey]
 	if !exists || part == nil || part.IsBroken {
 		return nil
@@ -30,15 +46,12 @@ func (m *Medarot) GetPart(slotKey string) *Part {
 	return part
 }
 
-// ★★★ [修正点] ★★★
 // GetAvailableAttackParts は利用可能な攻撃パーツを返します。
-// 壊れておらず、かつChargeが0より大きいパーツのみをリストアップするように修正。
 func (m *Medarot) GetAvailableAttackParts() []*Part {
 	available := []*Part{}
-	attackSlots := []string{"head", "rightArm", "leftArm"}
+	attackSlots := []PartSlotKey{PartSlotHead, PartSlotRightArm, PartSlotLeftArm}
 	for _, slotKey := range attackSlots {
 		part := m.GetPart(slotKey)
-		// パーツが存在し、かつチャージが0より大きい（=行動可能）ことを確認
 		if part != nil && part.Charge > 0 {
 			available = append(available, part)
 		}
@@ -51,21 +64,27 @@ func (m *Medarot) Update(cfg BalanceConfig) {
 	if m.State == StateBroken {
 		return
 	}
-	headPart, exists := m.Parts["head"]
+
+	headPart, exists := m.Parts[PartSlotHead]
 	if exists && headPart.IsBroken {
-		m.State = StateBroken
-		m.Gauge = 0
+		m.ChangeState(StateBroken)
 		return
 	}
+
 	var moveSpeed float64
-	legs := m.GetPart("legs")
+	legs := m.GetPart(PartSlotLegs)
 	legPropulsion := 0
 	if legs != nil {
 		legPropulsion = legs.Propulsion
 	}
-	part := m.GetPart(m.SelectedPartKey)
+	var part *Part
+	if m.SelectedPartKey != "" {
+		part = m.GetPart(m.SelectedPartKey)
+	}
 	if part == nil {
-		m.resetToActionSelection()
+		if m.State == StateActionCharging || m.State == StateActionCooldown {
+			m.ChangeState(StateReadyToSelectAction)
+		}
 		return
 	}
 	stat := 0
@@ -79,15 +98,15 @@ func (m *Medarot) Update(cfg BalanceConfig) {
 	if m.Gauge >= 100.0 {
 		m.Gauge = 100.0
 		if m.State == StateActionCharging {
-			m.State = StateReadyToExecuteAction
+			m.ChangeState(StateReadyToExecuteAction)
 		} else if m.State == StateActionCooldown {
-			m.resetToActionSelection()
+			m.ChangeState(StateReadyToSelectAction)
 		}
 	}
 }
 
 // SelectAction は行動を選択します。
-func (m *Medarot) SelectAction(partSlotKey string) bool {
+func (m *Medarot) SelectAction(partSlotKey PartSlotKey) bool {
 	if m.State != StateReadyToSelectAction {
 		return false
 	}
@@ -96,7 +115,7 @@ func (m *Medarot) SelectAction(partSlotKey string) bool {
 		return false
 	}
 	m.SelectedPartKey = partSlotKey
-	m.State = StateActionCharging
+	m.ChangeState(StateActionCharging)
 	m.Gauge = 0
 	m.applyActionConstraints(partToUse.Trait, true)
 	return true
@@ -105,56 +124,47 @@ func (m *Medarot) SelectAction(partSlotKey string) bool {
 // ExecuteAction は行動を実行します。引数にConfigと攻撃対象リストを取ります。
 func (m *Medarot) ExecuteAction(cfg BalanceConfig, opponents []*Medarot) {
 	defer func() {
-		m.State = StateActionCooldown
+		m.ChangeState(StateActionCooldown)
 		m.Gauge = 0
-		selectedPart := m.GetPart(m.SelectedPartKey)
-		if selectedPart != nil {
-			m.applyActionConstraints(selectedPart.Trait, false)
+		if m.SelectedPartKey != "" {
+			if selectedPart := m.GetPart(m.SelectedPartKey); selectedPart != nil {
+				m.applyActionConstraints(selectedPart.Trait, false)
+			}
 		}
 	}()
-
-	selectedPart := m.GetPart(m.SelectedPartKey)
+	var selectedPart *Part
+	if m.SelectedPartKey != "" {
+		selectedPart = m.GetPart(m.SelectedPartKey)
+	}
 	if selectedPart == nil {
 		m.LastActionLog = "パーツが破壊されていて失敗！"
 		return
 	}
-
 	target := m.determineTarget(opponents)
 	if target == nil {
 		m.LastActionLog = "ターゲットが見つからず失敗！"
 		return
 	}
-
 	isHit, isCritical := m.calculateHit(target, selectedPart, cfg)
 	if !isHit {
 		m.LastActionLog = fmt.Sprintf("%sへの攻撃は回避された！", target.Name)
 		return
 	}
-
 	targetPart := target.selectRandomPartToDamage()
 	if targetPart == nil {
 		m.LastActionLog = "攻撃対象部位がなかった！"
 		return
 	}
-
 	damage := m.calculateDamage(targetPart, selectedPart, isCritical, cfg)
 	m.applyDamage(targetPart, damage)
-
 	m.LastActionLog = m.generateActionLog(target, targetPart, damage, isCritical)
 	target.handlePostAttack()
 }
 
-// --- 以下、分割したプライベートメソッド ---
-
 // determineTarget は攻撃対象を決定します。
 func (m *Medarot) determineTarget(opponents []*Medarot) *Medarot {
-	if m.TargetedMedarot != nil && m.TargetedMedarot.State != StateBroken {
-		return m.TargetedMedarot
-	}
-	if len(opponents) == 0 {
-		return nil
-	}
-	return opponents[rand.Intn(len(opponents))]
+	// この時点で m.TargetedMedarot は有効なはずなので、それをそのまま返す
+	return m.TargetedMedarot
 }
 
 // calculateHit は命中判定を計算します。
@@ -165,7 +175,6 @@ func (m *Medarot) calculateHit(target *Medarot, part *Part, cfg BalanceConfig) (
 	} else {
 		skillValue = m.Medal.SkillFight
 	}
-
 	traitBonus := 0
 	switch part.Trait {
 	case TraitAim:
@@ -175,20 +184,17 @@ func (m *Medarot) calculateHit(target *Medarot, part *Part, cfg BalanceConfig) (
 	case TraitBerserk:
 		traitBonus = cfg.Hit.TraitBerserkDebuff
 	}
-
 	finalAccuracy := part.Accuracy + skillValue + traitBonus
 	targetMobility := 0
-	if targetLegs := target.GetPart("legs"); targetLegs != nil {
+	if targetLegs := target.GetPart(PartSlotLegs); targetLegs != nil {
 		targetMobility = targetLegs.Mobility
 	}
 	if target.IsEvasionDisabled {
 		targetMobility = 0
 	}
-
 	hitChance := cfg.Hit.BaseChance + finalAccuracy - targetMobility
 	isHit := hitChance > 0 && rand.Intn(100) < hitChance
 	isCritical := isHit && hitChance > 100 && rand.Intn(100) < (hitChance-100)
-
 	return isHit, isCritical
 }
 
@@ -196,24 +202,21 @@ func (m *Medarot) calculateHit(target *Medarot, part *Part, cfg BalanceConfig) (
 func (m *Medarot) calculateDamage(targetPart, attackingPart *Part, isCritical bool, cfg BalanceConfig) int {
 	basePower := attackingPart.Power + (m.Medal.SkillFight * cfg.Damage.MedalSkillFactor)
 	if attackingPart.Trait == TraitBerserk {
-		if legs := m.GetPart("legs"); legs != nil {
+		if legs := m.GetPart(PartSlotLegs); legs != nil {
 			basePower += legs.Propulsion
 		}
 	}
-
 	defenseValue := targetPart.Defense
-	if targetLegs := targetPart.Owner.GetPart("legs"); targetLegs != nil {
+	if targetLegs := targetPart.Owner.GetPart(PartSlotLegs); targetLegs != nil {
 		defenseValue += targetLegs.Defense
 	}
 	if targetPart.Owner.IsDefenseDisabled {
 		defenseValue = 0
 	}
-
 	rawDamage := float64(basePower - defenseValue)
 	if isCritical {
 		rawDamage *= cfg.Damage.CriticalMultiplier
 	}
-
 	return int(math.Max(1, math.Floor(rawDamage)))
 }
 
@@ -241,16 +244,15 @@ func (m *Medarot) generateActionLog(target *Medarot, part *Part, damage int, isC
 
 // handlePostAttack は攻撃後の状態変化を処理します。
 func (m *Medarot) handlePostAttack() {
-	if head := m.GetPart("head"); head != nil && head.IsBroken {
-		m.State = StateBroken
-		m.Gauge = 0
+	if head := m.GetPart(PartSlotHead); head != nil && head.IsBroken {
+		m.ChangeState(StateBroken)
 	}
 }
 
 // selectRandomPartToDamage は攻撃対象部位をランダムに選択します。
 func (m *Medarot) selectRandomPartToDamage() *Part {
 	vulnerable := []*Part{}
-	slots := []string{"head", "rightArm", "leftArm", "legs"}
+	slots := []PartSlotKey{PartSlotHead, PartSlotRightArm, PartSlotLeftArm, PartSlotLegs}
 	for _, s := range slots {
 		if p := m.GetPart(s); p != nil {
 			vulnerable = append(vulnerable, p)
@@ -260,15 +262,6 @@ func (m *Medarot) selectRandomPartToDamage() *Part {
 		return nil
 	}
 	return vulnerable[rand.Intn(len(vulnerable))]
-}
-
-// resetToActionSelection は行動選択状態にリセットします。
-func (m *Medarot) resetToActionSelection() {
-	m.State = StateReadyToSelectAction
-	m.Gauge = 100.0
-	m.SelectedPartKey = ""
-	m.IsEvasionDisabled = false
-	m.IsDefenseDisabled = false
 }
 
 // applyActionConstraints は行動制限を適用します。

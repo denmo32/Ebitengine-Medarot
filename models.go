@@ -1,5 +1,16 @@
 package main
 
+// PartSlotKey はパーツのスロットを一意に識別するための型です。
+type PartSlotKey string
+
+// PartSlot... はパーツのスロットキーを表す定数です。
+const (
+	PartSlotHead     PartSlotKey = "head"
+	PartSlotRightArm PartSlotKey = "rightArm"
+	PartSlotLeftArm  PartSlotKey = "leftArm"
+	PartSlotLegs     PartSlotKey = "legs"
+)
+
 // PartType はパーツの部位を定義します。
 type PartType string
 
@@ -82,11 +93,11 @@ type Medarot struct {
 	Name              string
 	Team              TeamID
 	Medal             *Medal
-	Parts             map[string]*Part
+	Parts             map[PartSlotKey]*Part // ★型を PartSlotKey に変更
 	IsLeader          bool
 	State             MedarotState
 	Gauge             float64
-	SelectedPartKey   string
+	SelectedPartKey   PartSlotKey // ★型を PartSlotKey に変更
 	TargetedMedarot   *Medarot
 	LastActionLog     string
 	IsEvasionDisabled bool
@@ -128,7 +139,6 @@ type Game struct {
 	playerActionTarget    *Medarot
 	restartRequested      bool
 	sortedMedarotsForDraw []*Medarot
-	// actionablePartsForModal []*Part // ★★★ [修正点] この行を削除 ★★★
-	team1Leader *Medarot
-	team2Leader *Medarot
+	team1Leader           *Medarot
+	team2Leader           *Medarot
 }
