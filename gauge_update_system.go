@@ -1,3 +1,4 @@
+// --- gauge_update_system.go ---
 package main
 
 import (
@@ -6,110 +7,96 @@ import (
 	"github.com/yohamta/donburi/filter"
 )
 
-// GaugeUpdateSystem はメダロットのゲージを更新します。
 type GaugeUpdateSystem struct {
 	query *donburi.Query
 }
 
 func NewGaugeUpdateSystem() *GaugeUpdateSystem {
 	return &GaugeUpdateSystem{
-		query: donburi.NewQuery(
-			filter.And(
-				filter.Contains(StatusComponentType),
-				filter.Contains(PartsComponentType),
-				filter.Contains(CMedal), // CMedal を使用
-				filter.Contains(ActionComponentType),
-				filter.Not(filter.Contains(BrokenTag)),
-			)),
+		query: donburi.NewQuery(filter.And(
+			filter.Contains(StatusComponentType, PartsComponentType, ActionComponentType),
+			filter.Not(filter.Contains(BrokenTag)),
+		)),
 	}
 }
 
 func (sys *GaugeUpdateSystem) Update(ecs *ecs.ECS) {
-	configEntry, ok := ConfigComponentType.First(ecs.World)
-	if !ok {
-		return
+	gs, gsOk := GameStateComponentType.First(ecs.World)
+	config, cfgOk := ConfigComponentType.First(ecs.World)
+	if !gsOk || !cfgOk || GameStateComponentType.Get(gs).CurrentState == GameStateMessage {
+		return // メッセージ表示中はゲージを更新しない
 	}
-	gameConfig := ConfigComponentType.Get(configEntry).GameConfig
-	if gameConfig == nil {
-		return
-	}
+	balanceCfg := ConfigComponentType.Get(config).GameConfig.Balance
 
 	sys.query.Each(ecs.World, func(entry *donburi.Entry) {
 		status := StatusComponentType.Get(entry)
 		parts := PartsComponentType.Get(entry)
-		actionComp := ActionComponentType.Get(entry)
+		action := ActionComponentType.Get(entry)
 
-		headPart, headExists := parts.Parts[PartSlotHead]
-		if headExists && headPart.IsBroken {
-			if !entry.HasComponent(BrokenTag) {
-				entry.AddComponent(BrokenTag)
-				status.State = StateBroken
-				status.Gauge = 0
-				StatusComponentType.Set(entry, status)
-			}
+		// 頭部が破壊されている場合は本体も破壊
+		if head, ok := parts.Parts[PartSlotHead]; ok && head.IsBroken {
+			entry.AddComponent(BrokenTag)
+			status.State = StateBroken
+			status.Gauge = 0
+			StatusComponentType.Set(entry, status)
 			return
 		}
 
-		legsPart := parts.Parts[PartSlotLegs]
-		legPropulsion := 0
-		if legsPart != nil && !legsPart.IsBroken {
-			legPropulsion = legsPart.Propulsion
+		// ゲージを進めるための基礎値（パーツのチャージ/クールダウンと脚部の推進）
+		var baseStat, legPropulsion int
+		if legs, ok := parts.Parts[PartSlotLegs]; ok && !legs.IsBroken {
+			legPropulsion = legs.Propulsion
 		}
 
-		var selectedPart *Part
-		if status.State == StateActionCharging || status.State == StateActionCooldown {
-			if actionComp.SelectedPartKey != "" {
-				part, exists := parts.Parts[actionComp.SelectedPartKey]
-				if exists && !part.IsBroken {
-					selectedPart = part
-				}
+		selectedPart, partExists := parts.Parts[action.SelectedPartKey]
+		isValidPartSelected := partExists && !selectedPart.IsBroken
+
+		switch status.State {
+		case StateActionCharging:
+			if !isValidPartSelected { // 充填中にパーツが壊れた
+				resetToActionSelect(entry, status, action)
+				return
 			}
-		}
-
-		if selectedPart == nil {
-			if status.State == StateActionCharging || status.State == StateActionCooldown {
-				status.State = StateReadyToSelectAction
-				status.Gauge = 100.0
-				actionComp.SelectedPartKey = ""
-				status.IsEvasionDisabled = false
-				status.IsDefenseDisabled = false
-				entry.RemoveComponent(ActionChargingTag)
-				entry.RemoveComponent(ActionCooldownTag)
-				StatusComponentType.Set(entry, status)
-				ActionComponentType.Set(entry, actionComp)
+			baseStat = selectedPart.Charge
+		case StateActionCooldown:
+			if !isValidPartSelected { // 冷却中にパーツが壊れた
+				resetToActionSelect(entry, status, action)
+				return
 			}
-			return
+			baseStat = selectedPart.Cooldown
+		default:
+			return // 他の状態ではゲージは進まない
 		}
 
-		stat := 0
-		if status.State == StateActionCharging {
-			stat = selectedPart.Charge
-		} else if status.State == StateActionCooldown {
-			stat = selectedPart.Cooldown
-		} else {
-			return
-		}
-
-		cfgBalance := gameConfig.Balance
-		moveSpeed := (float64(stat) + float64(legPropulsion)*cfgBalance.Time.PropulsionEffectRate) / cfgBalance.Time.OverallTimeDivisor
+		// ゲージ更新
+		moveSpeed := (float64(baseStat) + float64(legPropulsion)*balanceCfg.Time.PropulsionEffectRate) / balanceCfg.Time.OverallTimeDivisor
 		status.Gauge += moveSpeed
 
+		// ゲージ満タン時の処理
 		if status.Gauge >= 100.0 {
-			status.Gauge = 100.0
+			status.Gauge = 100.0 // 100を超えないように
 			if status.State == StateActionCharging {
 				status.State = StateReadyToExecuteAction
 				entry.RemoveComponent(ActionChargingTag)
 				entry.AddComponent(ReadyToExecuteActionTag)
 			} else if status.State == StateActionCooldown {
-				status.State = StateReadyToSelectAction
-				entry.RemoveComponent(ActionCooldownTag)
-				status.IsEvasionDisabled = false
-				status.IsDefenseDisabled = false
-				actionComp.TargetedMedarot = donburi.Entity(0) // ★ donburi.Entity{} を donburi.Entity(0) に修正
-				actionComp.SelectedPartKey = ""
-				ActionComponentType.Set(entry, actionComp)
+				resetToActionSelect(entry, status, action)
 			}
 		}
 		StatusComponentType.Set(entry, status)
 	})
+}
+
+// resetToActionSelect はメダロットの状態を行動選択可能に戻します。
+func resetToActionSelect(entry *donburi.Entry, status *StatusComponent, action *ActionComponent) {
+	status.State = StateReadyToSelectAction
+	status.Gauge = 100.0 // 行動選択は即時可能
+	status.IsEvasionDisabled = false
+	status.IsDefenseDisabled = false
+	entry.RemoveComponent(ActionChargingTag)
+	entry.RemoveComponent(ActionCooldownTag)
+
+	action.TargetedMedarot = donburi.Entity(0)
+	action.SelectedPartKey = ""
+	ActionComponentType.Set(entry, action)
 }

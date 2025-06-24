@@ -5,7 +5,9 @@ import (
 	"github.com/yohamta/donburi/features/math"
 )
 
-// 基本的な識別情報
+// --- Entity Components ---
+
+// IdentityComponent はエンティティの基本的な識別情報を保持します。
 type IdentityComponent struct {
 	ID       string
 	Name     string
@@ -15,95 +17,100 @@ type IdentityComponent struct {
 
 var IdentityComponentType = donburi.NewComponentType[IdentityComponent]()
 
-// メダル情報
+// MedalComponent はメダルの情報を保持します。
 type MedalComponent struct {
-	Medal *Medal // models.Medal を再利用
+	Medal *Medal // models.Medal を参照
 }
 
-var CMedal = donburi.NewComponentType[MedalComponent]() // さらに名前を変更して衝突を避ける
+var CMedal = donburi.NewComponentType[MedalComponent]()
 
-// パーツ情報
+// PartsComponent はパーツの情報を保持します。
 type PartsComponent struct {
-	Parts map[PartSlotKey]*Part // models.Part を再利用
+	Parts map[PartSlotKey]*Part // models.Part を参照
 }
 
 var PartsComponentType = donburi.NewComponentType[PartsComponent]()
 
-// メダロットの現在の状態
+// StatusComponent はメダロットの現在の動的な状態を保持します。
 type StatusComponent struct {
 	State             MedarotState
 	Gauge             float64
-	IsEvasionDisabled bool // 狙い撃ちなどで回避不可
-	IsDefenseDisabled bool // 打撃などで防御不可
+	IsEvasionDisabled bool // 「狙い撃ち」などで回避ができない状態
+	IsDefenseDisabled bool // 「がむしゃら」などで防御ができない状態
 }
 
 var StatusComponentType = donburi.NewComponentType[StatusComponent]()
 
-// 選択されたアクションとターゲット
+// ActionComponent は選択されたアクションとターゲットの情報を保持します。
 type ActionComponent struct {
-	SelectedPartKey     PartSlotKey
-	TargetedMedarot     donburi.Entity // ターゲットエンティティを保持
-	LastActionLog       string
-	PendingActionEffect func(w donburi.World, actingEntity donburi.Entity) // 実行待ちのアクション効果
+	SelectedPartKey PartSlotKey
+	TargetedMedarot donburi.Entity // ターゲットエンティティ
+	LastActionLog   string
 }
 
 var ActionComponentType = donburi.NewComponentType[ActionComponent]()
 
-// 描画に関する情報
+// RenderComponent は描画に関する情報を保持します。
 type RenderComponent struct {
-	DrawIndex int        // リスト内での描画順 (0から)
-	Position  math.Vec2  // バトルフィールド上の現在位置 (将来的に詳細化)
-	Color     [4]float32 // RGBA
+	DrawIndex int       // 情報パネルなどでの描画順
+	Position  math.Vec2 // 将来的な拡張用の座標
 }
 
 var RenderComponentType = donburi.NewComponentType[RenderComponent]()
 
-// AI制御用コンポーネント（今はシンプルにタグとして機能）
+// AIControlledComponent はAIによって制御されることを示すタグコンポーネントです。
 type AIControlledComponent struct{}
 
 var AIControlledComponentType = donburi.NewComponentType[AIControlledComponent]()
 
-// プレイヤー制御用コンポーネント（今はシンプルにタグとして機能）
+// PlayerControlledComponent はプレイヤーによって制御されることを示すタグコンポーネントです。
 type PlayerControlledComponent struct{}
 
 var PlayerControlledComponentType = donburi.NewComponentType[PlayerControlledComponent]()
 
-// ゲーム全体の状態を保持するコンポーネント (シングルトンエンティティ用)
+// --- Singleton Components ---
+
+// GameStateComponent はゲーム全体のグローバルな状態を保持します。
 type GameStateComponent struct {
 	TickCount           int
-	CurrentState        GameState // models.GameState
-	PlayerTeam          TeamID
+	CurrentState        GameState
 	Message             string
 	PostMessageCallback func()
 	Winner              TeamID
 	RestartRequested    bool
 	DebugMode           bool
-	// actionQueueはシステム内で処理するか、別の方法で管理
 }
 
 var GameStateComponentType = donburi.NewComponentType[GameStateComponent]()
 
-// プレイヤーの行動選択UIに関連するコンポーネント (シングルトンまたはUIエンティティ用)
+// PlayerActionSelectComponent はプレイヤーの行動選択UIの状態を保持します。
 type PlayerActionSelectComponent struct {
-	// ActingMedarot    donburi.Entity // ← これはもう不要になる
 	CurrentTarget    donburi.Entity
 	AvailableActions []PartSlotKey
-	ActionQueue      []donburi.Entity // ★ 行動選択待ちのメダロットを保持するキューを追加
+	ActionQueue      []donburi.Entity // 行動選択待ちのエンティティのキュー
 }
 
 var PlayerActionSelectComponentType = donburi.NewComponentType[PlayerActionSelectComponent]()
 
-// タグコンポーネントの例
-var NeedsActionSelectionTag = donburi.NewTag().SetName("NeedsActionSelection")
+// ConfigComponent はロードされた設定とゲームデータを保持します。
+type ConfigComponent struct {
+	GameConfig *Config
+	GameData   *GameData
+}
+
+var ConfigComponentType = donburi.NewComponentType[ConfigComponent]()
+
+// --- Tags ---
+
 var ReadyToExecuteActionTag = donburi.NewTag().SetName("ReadyToExecuteAction")
 var BrokenTag = donburi.NewTag().SetName("Broken")
 var ActionChargingTag = donburi.NewTag().SetName("ActionCharging")
 var ActionCooldownTag = donburi.NewTag().SetName("ActionCooldown")
 
-// グローバル設定やデータを保持するコンポーネント (シングルトンエンティティ用)
-type ConfigComponent struct {
-	GameConfig *Config   // main.Config
-	GameData   *GameData // main.GameData
-}
+// --- Component Helper Methods ---
 
-var ConfigComponentType = donburi.NewComponentType[ConfigComponent]()
+// IsBroken はStatusComponentが破壊状態かどうかを返します。
+// これにより、各システムで状態をチェックするロジックが統一されます。
+func (s *StatusComponent) IsBroken() bool {
+	return s.State == StateBroken
+}
