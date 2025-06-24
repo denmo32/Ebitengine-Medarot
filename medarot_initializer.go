@@ -6,7 +6,8 @@ import (
 	"math/rand"
 )
 
-// DefaultLoadout defines a set of part IDs for a Medarot.
+const PlayersPerTeam = 3
+
 type DefaultLoadout struct {
 	Head     string
 	RightArm string
@@ -15,31 +16,23 @@ type DefaultLoadout struct {
 }
 
 var defaultLoadouts = []DefaultLoadout{
-	// CSVファイルのID体系 (P001, P002など) に合わせて修正
-	{Head: "P001", RightArm: "P001", LeftArm: "P001", Legs: "P001"}, // Metabee-like (各パーツCSVのP001を使用)
-	{Head: "P002", RightArm: "P002", LeftArm: "P002", Legs: "P002"}, // Rokusho-like (各パーツCSVのP002を使用)
-	{Head: "P003", RightArm: "P003", LeftArm: "P003", Legs: "P003"}, // 汎用セット
-	{Head: "P001", RightArm: "P002", LeftArm: "P003", Legs: "P004"}, // 組み合わせ1
-	{Head: "P002", RightArm: "P003", LeftArm: "P001", Legs: "P005"}, // 組み合わせ2
-	{Head: "P003", RightArm: "P001", LeftArm: "P002", Legs: "P006"}, // 組み合わせ3
+	{Head: "H-001", RightArm: "RA-001", LeftArm: "LA-001", Legs: "L-001"},
+	{Head: "H-002", RightArm: "RA-002", LeftArm: "LA-002", Legs: "L-002"},
+	{Head: "H-003", RightArm: "RA-003", LeftArm: "LA-003", Legs: "L-003"},
+	{Head: "H-004", RightArm: "RA-004", LeftArm: "LA-004", Legs: "L-004"},
+	{Head: "H-005", RightArm: "RA-005", LeftArm: "LA-005", Legs: "L-005"},
+	{Head: "H-006", RightArm: "RA-006", LeftArm: "LA-006", Legs: "L-006"},
 }
 
-// ★★★ 修正点1: findPartByID関数の修正 ★★★
-//パーツが見つかった際に、安全に新しいインスタンス（コピー）を作成してそのポインタを返します。
-//これにより、複数のメダロットが同じパーツデータを共有してしまうことを防ぎ、
-//ポインタに関する潜在的な問題を回避します。
-func findPartByID(parts []Part, id string) *Part {
-	for i := range parts {
-		if parts[i].ID == id {
-			// 元のデータを変更しないように、新しいPartインスタンスを作成して返す
-			newPart := parts[i]
-			return &newPart
-		}
+func findPartByID(allParts map[string]*Part, id string) *Part {
+	originalPart, exists := allParts[id]
+	if !exists {
+		return nil
 	}
-	return nil
+	newPart := *originalPart
+	return &newPart
 }
 
-// findMedalByID searches for a medal by ID.
 func findMedalByID(medals []Medal, id string) *Medal {
 	for i := range medals {
 		if medals[i].ID == id {
@@ -50,7 +43,6 @@ func findMedalByID(medals []Medal, id string) *Medal {
 	return nil
 }
 
-// createMedarotTeam creates a team of Medarots.
 func createMedarotTeam(teamID TeamID, teamBaseSpeed float64, gameData *GameData) []*Medarot {
 	var teamMedarots []*Medarot
 
@@ -66,51 +58,43 @@ func createMedarotTeam(teamID TeamID, teamBaseSpeed float64, gameData *GameData)
 		isLeader := (i == 0)
 
 		var selectedMedal *Medal
-		var partsConfig DefaultLoadout
-
-		if teamID == Team1 && i == 0 {
+		// ★ 'partsConfig' の未使用エラーを修正
+		var partsConfig DefaultLoadout = defaultLoadouts[rand.Intn(len(defaultLoadouts))]
+		if teamID == Team1 && isLeader {
 			metabeeMedal := findMedalByID(gameData.Medals, "M001")
 			if metabeeMedal != nil {
 				selectedMedal = metabeeMedal
 			}
-			if len(defaultLoadouts) > 0 {
-				partsConfig = defaultLoadouts[0]
-			}
-		}
-
-		if partsConfig.Head == "" {
-			loadoutIndex := medarotIDNumber - 1
-			if len(defaultLoadouts) > 0 {
-				partsConfig = defaultLoadouts[loadoutIndex%len(defaultLoadouts)]
-			}
+			partsConfig = defaultLoadouts[0]
+		} else {
+			medalIndex := rand.Intn(len(gameData.Medals))
+			selectedMedal = &gameData.Medals[medalIndex]
 		}
 
 		if selectedMedal == nil {
-			medalIndex := medarotIDNumber - 1
-			if len(gameData.Medals) > 0 {
-				selectedMedal = &gameData.Medals[medalIndex%len(gameData.Medals)]
-			} else {
-				log.Printf("Warning: No medals loaded. Creating a fallback medal for %s.\n", medarotDisplayID)
-				selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback", SkillShoot: 5, SkillFight: 5}
-			}
+			log.Printf("Warning: No medals loaded. Creating a fallback medal for %s.\n", medarotDisplayID)
+			selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback", SkillShoot: 5, SkillFight: 5}
 		}
 
-		medarotSpeed := teamBaseSpeed + (rand.Float64() * 0.2)
-		medarot := NewMedarot(medarotDisplayID, medarotName, teamID, medarotSpeed, selectedMedal, isLeader)
+		medarot := NewMedarot(medarotDisplayID, medarotName, teamID, selectedMedal, isLeader)
 
-		partMap := map[string]string{
-			"head":     partsConfig.Head,
-			"rightArm": partsConfig.RightArm,
-			"leftArm":  partsConfig.LeftArm,
-			"legs":     partsConfig.Legs,
+		// ★定数を使用
+		partIDMap := map[PartSlotKey]string{
+			PartSlotHead:     partsConfig.Head,
+			PartSlotRightArm: partsConfig.RightArm,
+			PartSlotLeftArm:  partsConfig.LeftArm,
+			PartSlotLegs:     partsConfig.Legs,
 		}
 
-		for slot, partID := range partMap {
-			if p := findPartByID(gameData.AllParts[slot], partID); p != nil {
+		for slot, partID := range partIDMap {
+			if p := findPartByID(gameData.AllParts, partID); p != nil {
+				p.Owner = medarot
 				medarot.Parts[slot] = p
 			} else {
 				log.Printf("Warning: Part %s for slot %s not found for %s. Equipping placeholder.\n", partID, slot, medarot.ID)
-				medarot.Parts[slot] = &Part{ID: "placeholder", Name: "Missing", Slot: slot, IsBroken: true, MaxHP: 1, HP: 1}
+				placeholderPart := &Part{ID: "placeholder", PartName: "Missing", Type: PartType(slot), IsBroken: true, MaxArmor: 1, Armor: 1}
+				placeholderPart.Owner = medarot
+				medarot.Parts[slot] = placeholderPart
 			}
 		}
 
@@ -119,7 +103,6 @@ func createMedarotTeam(teamID TeamID, teamBaseSpeed float64, gameData *GameData)
 	return teamMedarots
 }
 
-// InitializeAllMedarots creates all Medarots for the game.
 func InitializeAllMedarots(gameData *GameData) []*Medarot {
 	var allMedarots []*Medarot
 
@@ -138,12 +121,12 @@ func InitializeAllMedarots(gameData *GameData) []*Medarot {
 		if m.Team == Team2 {
 			teamStr = "Team2"
 		}
-		log.Printf("  - %s (%s), Leader: %t, Speed: %.2f, Medal: %s", m.Name, teamStr, m.IsLeader, m.Speed, m.Medal.Name)
+		log.Printf("  - %s (%s), Leader: %t, Medal: %s", m.Name, teamStr, m.IsLeader, m.Medal.Name)
 		for slot, part := range m.Parts {
 			if part != nil {
-				log.Printf("    %s: %s (HP: %d/%d, IsBroken: %t, Pow: %d)", slot, part.Name, part.HP, part.MaxHP, part.IsBroken, part.Power)
+				log.Printf("    %s: %s (Armor: %d/%d, Pow: %d)", string(slot), part.PartName, part.Armor, part.MaxArmor, part.Power)
 			} else {
-				log.Printf("    %s: <NONE>", slot)
+				log.Printf("    %s: <NONE>", string(slot))
 			}
 		}
 	}

@@ -62,20 +62,20 @@ func main() {
 	if gameData == nil {
 		log.Fatal("Game data is nil after loading.")
 	}
-	
+
 	// Check if crucial data is loaded
 	if len(gameData.Medals) == 0 {
 		log.Println("Warning: No medals were loaded. Medarots might use fallback medals.")
 	}
-	if len(gameData.AllParts["head"]) == 0 && 
-	   len(gameData.AllParts["rightArm"]) == 0 &&
-	   len(gameData.AllParts["leftArm"]) == 0 &&
-	   len(gameData.AllParts["legs"]) == 0 {
-		log.Println("Warning: No parts were loaded for any slot. Medarots might use placeholder parts.")
+	if len(gameData.AllParts) == 0 {
+		log.Println("Warning: No parts were loaded. Medarots might use placeholder parts.")
 	}
 
+	// ★★★ [変更点] Configをロード ★★★
+	config := LoadConfig()
+
 	// Create a new game instance
-	game := NewGame(gameData)
+	game := NewGame(gameData, config) // 引数にconfigを追加
 	if game == nil {
 		log.Fatal("Failed to create new game instance.")
 	}
@@ -83,9 +83,9 @@ func main() {
 		log.Fatal("Game initialized with no Medarots.")
 	}
 
-	// Set window properties
-	ebiten.SetWindowSize(ScreenWidth, ScreenHeight)
-	ebiten.SetWindowTitle("メダロット風ゲーム (Ebitengine)") // タイトルも日本語にできます
+	// ★★★ [修正] Configからウィンドウサイズを設定 ★★★
+	ebiten.SetWindowSize(config.UI.Screen.Width, config.UI.Screen.Height)
+	ebiten.SetWindowTitle("メダロット風ゲーム (Ebitengine)")
 
 	// Start the game loop
 	if err := ebiten.RunGame(game); err != nil {
