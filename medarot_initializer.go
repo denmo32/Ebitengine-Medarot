@@ -6,7 +6,10 @@ import (
 	"math/rand"
 )
 
-// DefaultLoadout defines a set of part IDs for a Medarot.
+// ★★★ ここに定数を追加 ★★★
+const PlayersPerTeam = 3
+
+// DefaultLoadout は変更ありません
 type DefaultLoadout struct {
 	Head     string
 	RightArm string
@@ -14,32 +17,39 @@ type DefaultLoadout struct {
 	Legs     string
 }
 
+// ★★★ [変更点] パーツIDを新しいCSVに合わせて修正 ★★★
+// あなたが作成したparts.csvのIDに合わせて、ここを修正してください。
 var defaultLoadouts = []DefaultLoadout{
-	// CSVファイルのID体系 (P001, P002など) に合わせて修正
-	{Head: "P001", RightArm: "P001", LeftArm: "P001", Legs: "P001"}, // Metabee-like (各パーツCSVのP001を使用)
-	{Head: "P002", RightArm: "P002", LeftArm: "P002", Legs: "P002"}, // Rokusho-like (各パーツCSVのP002を使用)
-	{Head: "P003", RightArm: "P003", LeftArm: "P003", Legs: "P003"}, // 汎用セット
-	{Head: "P001", RightArm: "P002", LeftArm: "P003", Legs: "P004"}, // 組み合わせ1
-	{Head: "P002", RightArm: "P003", LeftArm: "P001", Legs: "P005"}, // 組み合わせ2
-	{Head: "P003", RightArm: "P001", LeftArm: "P002", Legs: "P006"}, // 組み合わせ3
+	{Head: "H-001", RightArm: "RA-001", LeftArm: "LA-001", Legs: "L-001"}, // マグナムセット
+	{Head: "H-002", RightArm: "RA-002", LeftArm: "LA-002", Legs: "L-002"}, // ソードセット
+	{Head: "H-003", RightArm: "RA-003", LeftArm: "LA-003", Legs: "L-003"}, // ショットガンセット
+	{Head: "H-004", RightArm: "RA-004", LeftArm: "LA-004", Legs: "L-004"}, // ハンマーセット
+	{Head: "H-005", RightArm: "RA-005", LeftArm: "LA-005", Legs: "L-005"}, // レーザーセット
+	{Head: "H-006", RightArm: "RA-006", LeftArm: "LA-006", Legs: "L-006"}, // クロウセット
 }
 
-// ★★★ 修正点1: findPartByID関数の修正 ★★★
-//パーツが見つかった際に、安全に新しいインスタンス（コピー）を作成してそのポインタを返します。
-//これにより、複数のメダロットが同じパーツデータを共有してしまうことを防ぎ、
-//ポインタに関する潜在的な問題を回避します。
-func findPartByID(parts []Part, id string) *Part {
-	for i := range parts {
-		if parts[i].ID == id {
-			// 元のデータを変更しないように、新しいPartインスタンスを作成して返す
-			newPart := parts[i]
-			return &newPart
-		}
+// ★★★ [変更点] findPartByID関数をマップ検索用に全面改修 ★★★
+// ★★★ 重要コメント ★★★
+// findPartByID は、全パーツデータの中から指定されたIDのパーツを探し、そのコピーを返します。
+//
+// なぜコピーを返すのか？:
+// 戦闘中、各メダロットが装備するパーツは、装甲値(Armor)や破壊状態(IsBroken)といった
+// 固有の状態を持ちます。もし元のデータのポインタを共有してしまうと、
+// ある一機のパーツがダメージを受けた際に、同じパーツを装備する他の全機体に影響が及んでしまいます。
+// それを防ぐため、各メダロットにはパーツデータの独立したコピーを装備させる必要があります。
+func findPartByID(allParts map[string]*Part, id string) *Part {
+	// マップからIDでパーツのポインタを取得
+	originalPart, exists := allParts[id]
+	if !exists {
+		return nil // パーツが見つからなければnilを返す
 	}
-	return nil
+
+	// 元のデータを変更しないように、新しいPartインスタンス（コピー）を作成してそのポインタを返す
+	newPart := *originalPart
+	return &newPart
 }
 
-// findMedalByID searches for a medal by ID.
+// findMedalByID は変更ありません
 func findMedalByID(medals []Medal, id string) *Medal {
 	for i := range medals {
 		if medals[i].ID == id {
@@ -50,7 +60,7 @@ func findMedalByID(medals []Medal, id string) *Medal {
 	return nil
 }
 
-// createMedarotTeam creates a team of Medarots.
+// ★★★ [変更点] createMedarotTeamを新しいデータ構造に合わせて修正 ★★★
 func createMedarotTeam(teamID TeamID, teamBaseSpeed float64, gameData *GameData) []*Medarot {
 	var teamMedarots []*Medarot
 
@@ -65,52 +75,53 @@ func createMedarotTeam(teamID TeamID, teamBaseSpeed float64, gameData *GameData)
 		medarotName := fmt.Sprintf("機体 %d", medarotIDNumber)
 		isLeader := (i == 0)
 
+		// チーム1のリーダー機は特別なロードアウトとメダルにする（例）
 		var selectedMedal *Medal
 		var partsConfig DefaultLoadout
-
-		if teamID == Team1 && i == 0 {
-			metabeeMedal := findMedalByID(gameData.Medals, "M001")
+		if teamID == Team1 && isLeader {
+			// ★★★ メダルIDをあなたのmedals.csvに合わせてください ★★★
+			metabeeMedal := findMedalByID(gameData.Medals, "M001") // 例: カブトメダル
 			if metabeeMedal != nil {
 				selectedMedal = metabeeMedal
 			}
-			if len(defaultLoadouts) > 0 {
-				partsConfig = defaultLoadouts[0]
-			}
-		}
+			partsConfig = defaultLoadouts[0] // 最初のロードアウトを割り当て
+		} else {
+			// その他の機体はランダム（または順番）に割り当て
+			loadoutIndex := rand.Intn(len(defaultLoadouts))
+			partsConfig = defaultLoadouts[loadoutIndex]
 
-		if partsConfig.Head == "" {
-			loadoutIndex := medarotIDNumber - 1
-			if len(defaultLoadouts) > 0 {
-				partsConfig = defaultLoadouts[loadoutIndex%len(defaultLoadouts)]
-			}
+			medalIndex := rand.Intn(len(gameData.Medals))
+			selectedMedal = &gameData.Medals[medalIndex]
 		}
 
 		if selectedMedal == nil {
-			medalIndex := medarotIDNumber - 1
-			if len(gameData.Medals) > 0 {
-				selectedMedal = &gameData.Medals[medalIndex%len(gameData.Medals)]
-			} else {
-				log.Printf("Warning: No medals loaded. Creating a fallback medal for %s.\n", medarotDisplayID)
-				selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback", SkillShoot: 5, SkillFight: 5}
-			}
+			log.Printf("Warning: No medals loaded. Creating a fallback medal for %s.\n", medarotDisplayID)
+			selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback", SkillShoot: 5, SkillFight: 5}
 		}
 
-		medarotSpeed := teamBaseSpeed + (rand.Float64() * 0.2)
-		medarot := NewMedarot(medarotDisplayID, medarotName, teamID, medarotSpeed, selectedMedal, isLeader)
+		// NewMedarotの呼び出しは変更なし
+		medarot := NewMedarot(medarotDisplayID, medarotName, teamID, selectedMedal, isLeader)
 
-		partMap := map[string]string{
+		// パーツIDのマップ
+		partIDMap := map[string]string{
 			"head":     partsConfig.Head,
 			"rightArm": partsConfig.RightArm,
 			"leftArm":  partsConfig.LeftArm,
 			"legs":     partsConfig.Legs,
 		}
 
-		for slot, partID := range partMap {
-			if p := findPartByID(gameData.AllParts[slot], partID); p != nil {
+		for slot, partID := range partIDMap {
+			// ★★★ findPartByIDの呼び出し方を変更 ★★★
+			if p := findPartByID(gameData.AllParts, partID); p != nil {
+				// ▼▼▼ この1行を追加 ▼▼▼
+				p.Owner = medarot // パーツに持ち主の情報を設定
 				medarot.Parts[slot] = p
 			} else {
 				log.Printf("Warning: Part %s for slot %s not found for %s. Equipping placeholder.\n", partID, slot, medarot.ID)
-				medarot.Parts[slot] = &Part{ID: "placeholder", Name: "Missing", Slot: slot, IsBroken: true, MaxHP: 1, HP: 1}
+				placeholderPart := &Part{ID: "placeholder", PartName: "Missing", Type: PartType(slot), IsBroken: true, MaxArmor: 1, Armor: 1}
+				// ▼▼▼ こちらも忘れずに追加 ▼▼▼
+				placeholderPart.Owner = medarot // プレースホルダーにも持ち主情報を設定
+				medarot.Parts[slot] = placeholderPart
 			}
 		}
 
@@ -119,7 +130,7 @@ func createMedarotTeam(teamID TeamID, teamBaseSpeed float64, gameData *GameData)
 	return teamMedarots
 }
 
-// InitializeAllMedarots creates all Medarots for the game.
+// ★★★ [変更点] InitializeAllMedarotsのログ出力を新Part構造体に合わせて修正 ★★★
 func InitializeAllMedarots(gameData *GameData) []*Medarot {
 	var allMedarots []*Medarot
 
@@ -138,10 +149,11 @@ func InitializeAllMedarots(gameData *GameData) []*Medarot {
 		if m.Team == Team2 {
 			teamStr = "Team2"
 		}
-		log.Printf("  - %s (%s), Leader: %t, Speed: %.2f, Medal: %s", m.Name, teamStr, m.IsLeader, m.Speed, m.Medal.Name)
+		// SpeedはもうMedarot構造体にないのでログから削除
+		log.Printf("  - %s (%s), Leader: %t, Medal: %s", m.Name, teamStr, m.IsLeader, m.Medal.Name)
 		for slot, part := range m.Parts {
 			if part != nil {
-				log.Printf("    %s: %s (HP: %d/%d, IsBroken: %t, Pow: %d)", slot, part.Name, part.HP, part.MaxHP, part.IsBroken, part.Power)
+				log.Printf("    %s: %s (Armor: %d/%d, Pow: %d)", slot, part.PartName, part.Armor, part.MaxArmor, part.Power)
 			} else {
 				log.Printf("    %s: <NONE>", slot)
 			}
