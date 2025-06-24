@@ -132,15 +132,13 @@ type PlayerInputSystem struct {
 	targetableQuery   *donburi.Query
 }
 
+// NewPlayerInputSystem はPlayerInputSystemを初期化します。
 func NewPlayerInputSystem() *PlayerInputSystem {
 	return &PlayerInputSystem{
 		actionSelectQuery: donburi.NewQuery(
 			filter.And(
 				filter.Contains(PlayerControlledComponentType),
 				filter.Contains(StatusComponentType),
-				filter.Contains(PartsComponentType),
-				filter.Contains(ActionComponentType),
-				filter.Contains(IdentityComponentType),
 				filter.Not(filter.Contains(BrokenTag)),
 			),
 		),
@@ -154,6 +152,7 @@ func NewPlayerInputSystem() *PlayerInputSystem {
 	}
 }
 
+// Update はPlayerInputSystemのメインロジックです。
 func (sys *PlayerInputSystem) Update(ecs *ecs.ECS) {
 	gameStateEntry, ok := GameStateComponentType.First(ecs.World)
 	if !ok {
@@ -161,36 +160,109 @@ func (sys *PlayerInputSystem) Update(ecs *ecs.ECS) {
 	}
 	gs := GameStateComponentType.Get(gameStateEntry)
 	pasComp := PlayerActionSelectComponentType.Get(gameStateEntry)
-	configComp := ConfigComponentType.Get(gameStateEntry)
-	if configComp.GameConfig == nil {
-		return
-	}
-	uiConfig := configComp.GameConfig.UI
 
-	if gs.CurrentState != StatePlaying && gs.CurrentState != StatePlayerActionSelect {
-		// pasComp.ActingMedarot.Valid() を ecs.World.Valid(pasComp.ActingMedarot) に修正
-		if ecs.World.Valid(pasComp.ActingMedarot) && gs.CurrentState != StatePlayerActionSelect {
-			pasComp.ActingMedarot = donburi.Entity(0) // ★ donburi.Entity{} を donburi.Entity(0) に修正
-			pasComp.CurrentTarget = donburi.Entity(0) // ★ donburi.Entity{} を donburi.Entity(0) に修正
-			pasComp.AvailableActions = nil
+	// --- フェーズ1: StatePlaying時の処理 ---
+	// 行動可能なプレイヤーキャラを探してキューに追加する
+	if gs.CurrentState == StatePlaying {
+		// 既にキューに誰かいる場合や、メッセージ表示に移行した場合は、このフレームでは新たに追加しない
+		// (これにより、行動選択中にゲージが溜まったキャラが割り込むのを防ぐ)
+		if len(pasComp.ActionQueue) > 0 {
+			return
+		}
+
+		sys.actionSelectQuery.Each(ecs.World, func(entry *donburi.Entry) {
+			status := StatusComponentType.Get(entry)
+			// ゲージが100%で、まだキューに入っていないキャラを探す
+			if status.State == StateReadyToSelectAction {
+				// このキャラは行動選択が必要
+				pasComp.ActionQueue = append(pasComp.ActionQueue, entry.Entity())
+			}
+		})
+
+		// キューに誰かが追加されたら、ゲーム状態をPlayerActionSelectに変更して次の処理へ
+		if len(pasComp.ActionQueue) > 0 {
+			gs.CurrentState = StatePlayerActionSelect
+			GameStateComponentType.Set(gameStateEntry, gs)
 			PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
 		}
+		// StatePlayingでの仕事はここまで
 		return
 	}
 
-	// pasComp.ActingMedarot.Valid() を ecs.World.Valid(pasComp.ActingMedarot) に修正
-	if gs.CurrentState == StatePlayerActionSelect && ecs.World.Valid(pasComp.ActingMedarot) {
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			actingMedarotEntry := ecs.World.Entry(pasComp.ActingMedarot)
-			if !actingMedarotEntry.Valid() { // entry.Valid() はOK
-				gs.CurrentState = StatePlaying
-				pasComp.ActingMedarot = donburi.Entity(0)
-				pasComp.CurrentTarget = donburi.Entity(0)
-				pasComp.AvailableActions = nil // ★
+	// --- フェーズ2: StatePlayerActionSelect時の処理 ---
+	// キューの先頭のキャラの行動を処理する
+	if gs.CurrentState == StatePlayerActionSelect {
+		// キューが空なのにこの状態なのは異常。安全のためPlayingに戻す
+		if len(pasComp.ActionQueue) == 0 {
+			gs.CurrentState = StatePlaying
+			// UI情報もクリア
+			pasComp.AvailableActions = nil
+			pasComp.CurrentTarget = donburi.Entity(0)
+			GameStateComponentType.Set(gameStateEntry, gs)
+			PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
+			return
+		}
+
+		// 行動選択対象はキューの先頭
+		actingMedarotEntity := pasComp.ActionQueue[0]
+		actingMedarotEntry := ecs.World.Entry(actingMedarotEntity)
+
+		// 対象が無効(破壊された等)ならキューから外し、次のフレームで次のキャラの処理へ
+		if !actingMedarotEntry.Valid() || StatusComponentType.Get(actingMedarotEntry).State == StateBroken {
+			pasComp.ActionQueue = pasComp.ActionQueue[1:]
+			PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
+			return
+		}
+
+		// --- UI表示のための準備 (このキャラの処理が初回の場合のみ実行) ---
+		if len(pasComp.AvailableActions) == 0 {
+			partsComp := PartsComponentType.Get(actingMedarotEntry)
+			pasComp.AvailableActions = []PartSlotKey{}
+			slotsForActionUI := []PartSlotKey{PartSlotHead, PartSlotRightArm, PartSlotLeftArm}
+			for _, slotKey := range slotsForActionUI {
+				part, exists := partsComp.Parts[slotKey]
+				if exists && !part.IsBroken && part.Charge > 0 {
+					pasComp.AvailableActions = append(pasComp.AvailableActions, slotKey)
+				}
+			}
+
+			// 選択可能な行動がなければ、行動できずに終了。キューから外して次へ
+			if len(pasComp.AvailableActions) == 0 {
+				pasComp.ActionQueue = pasComp.ActionQueue[1:]
+				// 次のフレームで次のキャラを処理するために、このフレームはここで終了
 				PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
-				GameStateComponentType.Set(gameStateEntry, gs)
 				return
 			}
+
+			// 仮のターゲットを選定
+			actingID := IdentityComponentType.Get(actingMedarotEntry)
+			var opponentTeam TeamID = Team2
+			if actingID.Team == Team2 {
+				opponentTeam = Team1
+			}
+
+			candidates := []donburi.Entity{}
+			sys.targetableQuery.Each(ecs.World, func(targetEntry *donburi.Entry) {
+				if IdentityComponentType.Get(targetEntry).Team == opponentTeam && StatusComponentType.Get(targetEntry).State != StateBroken {
+					candidates = append(candidates, targetEntry.Entity())
+				}
+			})
+			if len(candidates) > 0 {
+				pasComp.CurrentTarget = candidates[rand.Intn(len(candidates))]
+			} else {
+				pasComp.CurrentTarget = donburi.Entity(0)
+			}
+			// 準備ができたのでコンポーネントを更新
+			PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
+		}
+
+		// --- クリックによる行動決定処理 ---
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			configEntry, cfgOk := ConfigComponentType.First(ecs.World)
+			if !cfgOk {
+				return
+			}
+			uiConfig := ConfigComponentType.Get(configEntry).GameConfig.UI
 
 			status := StatusComponentType.Get(actingMedarotEntry)
 			partsComp := PartsComponentType.Get(actingMedarotEntry)
@@ -199,10 +271,11 @@ func (sys *PlayerInputSystem) Update(ecs *ecs.ECS) {
 
 			for i, slotKey := range pasComp.AvailableActions {
 				partData, partExists := partsComp.Parts[slotKey]
-				if !partExists || partData.IsBroken || partData.Charge <= 0 {
+				if !partExists {
 					continue
 				}
 
+				// ボタン領域の計算 (RenderSystemとロジックを合わせる)
 				btnW := uiConfig.ActionModal.ButtonWidth
 				btnH := uiConfig.ActionModal.ButtonHeight
 				btnSpacing := uiConfig.ActionModal.ButtonSpacing
@@ -211,108 +284,59 @@ func (sys *PlayerInputSystem) Update(ecs *ecs.ECS) {
 				buttonRect := image.Rect(buttonX, buttonY, buttonX+int(btnW), buttonY+int(btnH))
 
 				if (image.Point{X: mx, Y: my}).In(buttonRect) {
+					// ボタンがクリックされた
 					targetEntry := ecs.World.Entry(pasComp.CurrentTarget)
-					// targetEntry.Valid() はOK
-					targetIsValid := targetEntry.Valid() && !StatusComponentType.Get(targetEntry).State_is_broken_internal()
+					targetIsValid := targetEntry.Valid() && StatusComponentType.Get(targetEntry).State != StateBroken
 
-					if partData.Category == CategoryShoot {
+					// 射撃・格闘でターゲットが必要かチェック
+					if partData.Category == CategoryShoot || partData.Category == CategoryFight {
 						if !targetIsValid {
-							gs.CurrentState = StatePlaying
-							pasComp.ActingMedarot = donburi.Entity(0) // ★
-							PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
-							GameStateComponentType.Set(gameStateEntry, gs)
-							return
-						}
-						actionComp.TargetedMedarot = pasComp.CurrentTarget
-					} else if partData.Category == CategoryFight {
-						if !targetIsValid {
-							gs.CurrentState = StatePlaying
-							pasComp.ActingMedarot = donburi.Entity(0) // ★
-							PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
-							GameStateComponentType.Set(gameStateEntry, gs)
+							// ターゲットがいないのに攻撃は選べない (ここでは何もしない or エラー音)
 							return
 						}
 						actionComp.TargetedMedarot = pasComp.CurrentTarget
 					}
 
+					// アクションを確定し、コンポーネントを更新
 					actionComp.SelectedPartKey = slotKey
 					status.State = StateActionCharging
-					status.Gauge = 0
-					if !partData.IsBroken {
-						switch partData.Trait {
-						case TraitAim:
-							status.IsEvasionDisabled = true
-						case TraitStrike:
-							status.IsDefenseDisabled = true
-						case TraitBerserk:
-							status.IsEvasionDisabled = true
-							status.IsDefenseDisabled = true
-						}
+					status.Gauge = 0.0
+
+					// 特性による状態変化
+					switch partData.Trait {
+					case TraitAim:
+						status.IsEvasionDisabled = true
+					case TraitStrike:
+						status.IsDefenseDisabled = true
+					case TraitBerserk:
+						status.IsEvasionDisabled = true
+						status.IsDefenseDisabled = true
 					}
+
 					actingMedarotEntry.AddComponent(ActionChargingTag)
 					StatusComponentType.Set(actingMedarotEntry, status)
 					ActionComponentType.Set(actingMedarotEntry, actionComp)
 
-					gs.CurrentState = StatePlaying
-					pasComp.ActingMedarot = donburi.Entity(0)
+					// --- キューの更新と状態遷移 ---
+					// 行動が決定したので、このメダロットをキューから削除
+					pasComp.ActionQueue = pasComp.ActionQueue[1:]
+
+					// 次のキャラのUI準備のため、UI情報をクリア
+					pasComp.AvailableActions = nil
 					pasComp.CurrentTarget = donburi.Entity(0)
-					pasComp.AvailableActions = nil // ★
+
+					// もしキューが空になったら、その時初めてPlaying状態に戻す
+					if len(pasComp.ActionQueue) == 0 {
+						gs.CurrentState = StatePlaying
+						GameStateComponentType.Set(gameStateEntry, gs)
+					}
+
+					// PlayerActionSelectComponentを更新して終了
 					PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
-					GameStateComponentType.Set(gameStateEntry, gs)
-					return
+					return // このフレームの処理は終わり
 				}
 			}
 		}
-		return
-	}
-
-	// !pasComp.ActingMedarot.Valid() を !ecs.World.Valid(pasComp.ActingMedarot) に修正
-	if gs.CurrentState == StatePlaying && !ecs.World.Valid(pasComp.ActingMedarot) {
-		var foundActingMedarotThisFrame bool = false
-		sys.actionSelectQuery.Each(ecs.World, func(entry *donburi.Entry) {
-			if foundActingMedarotThisFrame {
-				return
-			}
-			status := StatusComponentType.Get(entry)
-			if status.State == StateReadyToSelectAction {
-				pasComp.ActingMedarot = entry.Entity()
-				partsComp := PartsComponentType.Get(entry)
-				pasComp.AvailableActions = []PartSlotKey{}
-				slotsForActionUI := []PartSlotKey{PartSlotHead, PartSlotRightArm, PartSlotLeftArm}
-				for _, slotKey := range slotsForActionUI {
-					part, exists := partsComp.Parts[slotKey]
-					if exists && !part.IsBroken && part.Charge > 0 {
-						pasComp.AvailableActions = append(pasComp.AvailableActions, slotKey)
-					}
-				}
-				if len(pasComp.AvailableActions) == 0 {
-					pasComp.ActingMedarot = donburi.Entity(0) // ★
-					return
-				}
-
-				actingID := IdentityComponentType.Get(entry)
-				var opponentTeam TeamID = Team2
-				if actingID.Team == Team2 {
-					opponentTeam = Team1
-				}
-				candidates := []donburi.Entity{}
-				sys.targetableQuery.Each(ecs.World, func(targetEntry *donburi.Entry) {
-					if IdentityComponentType.Get(targetEntry).Team == opponentTeam && !StatusComponentType.Get(targetEntry).State_is_broken_internal() {
-						candidates = append(candidates, targetEntry.Entity())
-					}
-				})
-				if len(candidates) > 0 {
-					pasComp.CurrentTarget = candidates[rand.Intn(len(candidates))]
-				} else {
-					pasComp.CurrentTarget = donburi.Entity(0)
-				} // ★
-
-				gs.CurrentState = StatePlayerActionSelect
-				PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
-				GameStateComponentType.Set(gameStateEntry, gs)
-				foundActingMedarotThisFrame = true
-			}
-		})
 	}
 }
 
@@ -679,14 +703,16 @@ func (sys *GameRuleSystem) Update(ecs *ecs.ECS) {
 		gs.Winner = Team2
 		gs.CurrentState = GameStateOver
 		gs.Message = "チーム2の勝利！"
-		showGameMessage(ecs, gs.Message, nil)
+		// showGameMessage(ecs, gs.Message, nil) // ★ この行をコメントアウトまたは削除
+		GameStateComponentType.Set(gameStateEntry, gs) // ★ 状態を保存するために追加
 		return
 	}
 	if team2LeaderExists && !team2LeaderAlive {
 		gs.Winner = Team1
 		gs.CurrentState = GameStateOver
 		gs.Message = "チーム1の勝利！"
-		showGameMessage(ecs, gs.Message, nil)
+		// showGameMessage(ecs, gs.Message, nil) // ★ この行をコメントアウトまたは削除
+		GameStateComponentType.Set(gameStateEntry, gs) // ★ 状態を保存するために追加
 		return
 	}
 }
@@ -730,6 +756,7 @@ func (sys *RenderSystem) Update(ecs *ecs.ECS) {
 	// Gameのsystemsスライスに追加するために必要。
 }
 
+// NewRenderSystem はRenderSystemを初期化します。
 func NewRenderSystem() *RenderSystem {
 	return &RenderSystem{
 		medarotQuery: donburi.NewQuery(filter.And(
@@ -739,6 +766,7 @@ func NewRenderSystem() *RenderSystem {
 	}
 }
 
+// MedarotDrawInfo は描画用のメダロット情報をまとめた構造体です。
 type MedarotDrawInfo struct {
 	Entry    *donburi.Entry
 	Identity *IdentityComponent
@@ -747,6 +775,7 @@ type MedarotDrawInfo struct {
 	Parts    *PartsComponent
 }
 
+// Draw はRenderSystemのメイン描画ロジックです。
 func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 	gameStateEntry, gsOk := GameStateComponentType.First(ecs.World)
 	configEntry, cfgOk := ConfigComponentType.First(ecs.World)
@@ -757,6 +786,7 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 	appConfig := ConfigComponentType.Get(configEntry).GameConfig
 	pasComp := PlayerActionSelectComponentType.Get(gameStateEntry)
 
+	// 背景とバトルフィールドの描画
 	screen.Fill(appConfig.UI.Colors.Background)
 	vector.StrokeRect(screen, 0, 0, float32(appConfig.UI.Screen.Width), appConfig.UI.Battlefield.Height, appConfig.UI.Battlefield.LineWidth, appConfig.UI.Colors.White, false)
 
@@ -776,6 +806,7 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 	vector.StrokeLine(screen, appConfig.UI.Battlefield.Team1ExecutionLineX, 0, appConfig.UI.Battlefield.Team1ExecutionLineX, appConfig.UI.Battlefield.Height, appConfig.UI.Battlefield.LineWidth, appConfig.UI.Colors.Gray, false)
 	vector.StrokeLine(screen, appConfig.UI.Battlefield.Team2ExecutionLineX, 0, appConfig.UI.Battlefield.Team2ExecutionLineX, appConfig.UI.Battlefield.Height, appConfig.UI.Battlefield.LineWidth, appConfig.UI.Colors.Gray, false)
 
+	// メダロット情報の収集とソート
 	allMedarotsToDraw := []MedarotDrawInfo{}
 	sys.medarotQuery.Each(ecs.World, func(entry *donburi.Entry) {
 		allMedarotsToDraw = append(allMedarotsToDraw, MedarotDrawInfo{
@@ -790,6 +821,7 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 		return allMedarotsToDraw[i].Render.DrawIndex < allMedarotsToDraw[j].Render.DrawIndex
 	})
 
+	// メダロットアイコンの描画
 	for _, mdi := range allMedarotsToDraw {
 		statusComp := mdi.Status
 		identityComp := mdi.Identity
@@ -822,7 +854,7 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 		if identityComp.Team == Team2 {
 			iconColor = appConfig.UI.Colors.Team2
 		}
-		if statusComp.State_is_broken_internal() || mdi.Entry.HasComponent(BrokenTag) {
+		if statusComp.State == StateBroken {
 			iconColor = appConfig.UI.Colors.Broken
 		}
 		vector.DrawFilledCircle(screen, currentX, baseYPos, appConfig.UI.Battlefield.IconRadius, iconColor, true)
@@ -831,6 +863,7 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 		}
 	}
 
+	// 情報パネルの描画
 	for _, mdi := range allMedarotsToDraw {
 		identityComp := mdi.Identity
 		statusComp := mdi.Status
@@ -847,23 +880,33 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 		drawMedarotInfoECS(screen, identityComp, statusComp, partsComp, panelX, panelY, appConfig, gs.DebugMode)
 	}
 
-	if gs.CurrentState == StatePlayerActionSelect && ecs.World.Valid(pasComp.ActingMedarot) {
-		actingMedarotEntry := ecs.World.Entry(pasComp.ActingMedarot)
+	// --- ★★★ 修正箇所 ★★★ ---
+	// 行動選択UIの描画
+	if gs.CurrentState == StatePlayerActionSelect && len(pasComp.ActionQueue) > 0 {
+		actingMedarotEntry := ecs.World.Entry(pasComp.ActionQueue[0])
 		if actingMedarotEntry.Valid() {
 			identity := IdentityComponentType.Get(actingMedarotEntry)
+
+			// 背景オーバーレイ
 			overlayColor := color.NRGBA{R: 0, G: 0, B: 0, A: 180}
 			vector.DrawFilledRect(screen, 0, 0, float32(appConfig.UI.Screen.Width), float32(appConfig.UI.Screen.Height), overlayColor, false)
+
+			// ウィンドウ本体
 			boxW, boxH := 320, 200
 			boxX := (appConfig.UI.Screen.Width - boxW) / 2
 			boxY := (appConfig.UI.Screen.Height - boxH) / 2
 			windowRect := image.Rect(boxX, boxY, boxX+boxW, boxY+boxH)
 			DrawWindow(screen, windowRect, appConfig.UI.Colors.Background, appConfig.UI.Colors.Team1)
+
+			// タイトル
 			titleStr := fmt.Sprintf("%s の行動を選択", identity.Name)
 			if MplusFont != nil {
 				bounds := text.BoundString(MplusFont, titleStr)
 				titleWidth := (bounds.Max.X - bounds.Min.X)
 				text.Draw(screen, titleStr, MplusFont, appConfig.UI.Screen.Width/2-titleWidth/2, boxY+30, appConfig.UI.Colors.White)
 			}
+
+			// アクションボタン
 			actingPartsComp := PartsComponentType.Get(actingMedarotEntry)
 			for i, slotKey := range pasComp.AvailableActions {
 				partData, exists := actingPartsComp.Parts[slotKey]
@@ -876,6 +919,7 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 				buttonX_modal := appConfig.UI.Screen.Width/2 - int(btnW_modal/2)
 				buttonY_modal := appConfig.UI.Screen.Height/2 - 50 + (int(btnH_modal)+int(btnSpacing_modal))*i
 				buttonRect_modal := image.Rect(buttonX_modal, buttonY_modal, buttonX_modal+int(btnW_modal), buttonY_modal+int(btnH_modal))
+
 				partStr := fmt.Sprintf("%s (%s)", partData.PartName, partData.Type)
 				if partData.Category == CategoryShoot {
 					if ecs.World.Valid(pasComp.CurrentTarget) {
@@ -891,12 +935,11 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 				DrawButton(screen, buttonRect_modal, partStr, MplusFont, appConfig.UI.Colors.Background, appConfig.UI.Colors.White, appConfig.UI.Colors.White)
 			}
 		} else {
-			gs.CurrentState = StatePlaying
-			pasComp.ActingMedarot = donburi.Entity(0)
-			PlayerActionSelectComponentType.Set(gameStateEntry, pasComp)
-			GameStateComponentType.Set(gameStateEntry, gs)
+			// 行動選択中のキャラが無効になった場合、システム側でキューから除外されるはずだが、
+			// 念のため描画は何もしない
 		}
 	} else if gs.CurrentState == GameStateMessage || gs.CurrentState == GameStateOver {
+		// メッセージ/ゲームオーバーパネルの描画
 		windowWidth := int(float32(appConfig.UI.Screen.Width) * 0.7)
 		windowHeight := int(float32(appConfig.UI.Screen.Height) * 0.25)
 		windowX := (appConfig.UI.Screen.Width - windowWidth) / 2
@@ -916,9 +959,14 @@ func (sys *RenderSystem) Draw(ecs *ecs.ECS, screen *ebiten.Image) {
 		}
 	}
 
+	// デバッグ情報の描画
 	if gs.DebugMode {
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Tick:%d St:%s Ent:%d PAS-A:%d PAS-T:%d",
-			gs.TickCount, gs.CurrentState, ecs.World.Len(), pasComp.ActingMedarot.Id(), pasComp.CurrentTarget.Id()),
+		var queueIds []int
+		for _, e := range pasComp.ActionQueue {
+			queueIds = append(queueIds, int(e.Id()))
+		}
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Tick:%d St:%s Ent:%d Q:%v",
+			gs.TickCount, gs.CurrentState, ecs.World.Len(), queueIds),
 			10, appConfig.UI.Screen.Height-15)
 	}
 }

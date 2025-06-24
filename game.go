@@ -126,49 +126,85 @@ func (g *Game) AddSystem(system System) {
 
 // Update はゲームのメインループです
 func (g *Game) Update() error {
-	// gameStateEntryがnilでないことを確認
+	// GameStateシングルトンエンティティを取得
 	if g.gameStateEntry == nil || !g.gameStateEntry.Valid() {
-		log.Println("Error: gameStateEntry is nil or invalid in Game.Update")
 		return fmt.Errorf("gameStateEntry is not initialized")
 	}
 	gs := GameStateComponentType.Get(g.gameStateEntry)
 
-	if gs.CurrentState == GameStateOver {
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			gs.RestartRequested = true
-			log.Println("GameStateOver: Click detected, requesting restart.")
-		}
-		if gs.RestartRequested {
-			log.Println("Restarting game...")
-			// Proper game restart would involve re-initializing world, entities, systems.
-			// For now, simple termination.
-			return ebiten.Termination
-		}
-		return nil
-	}
-
+	// デバッグモードの切り替えは常時受け付ける
 	if inpututil.IsKeyJustPressed(ebiten.KeyD) {
 		gs.DebugMode = !gs.DebugMode
+	}
+
+	// ゲームの状態に応じて、実行するロジックを完全に分離する
+	switch gs.CurrentState {
+	case StatePlaying:
+		// === ゲーム進行中の処理 ===
+		// 1. ルールチェック (勝敗判定)
+		g.getSystem(&GameRuleSystem{}).Update(g.ECS)
+		// GameRuleSystemが状態をOverに変えたら、即座にこのフレームの処理を中断
+		if GameStateComponentType.Get(g.gameStateEntry).CurrentState == GameStateOver {
+			return nil
+		}
+
+		// 2. アクションの実行
+		g.getSystem(&ActionExecutionSystem{}).Update(g.ECS)
+
+		// 3. AIとプレイヤーの行動選択準備
+		g.getSystem(&AISystem{}).Update(g.ECS)
+		g.getSystem(&PlayerInputSystem{}).Update(g.ECS)
+
+		// 4. 最後にゲージを更新
+		g.getSystem(&GaugeUpdateSystem{}).Update(g.ECS)
+
+	case StatePlayerActionSelect:
+		// === プレイヤー行動選択中の処理 ===
+		// プレイヤー入力システムのみを実行
+		g.getSystem(&PlayerInputSystem{}).Update(g.ECS)
+
+	case GameStateMessage:
+		// === メッセージ表示中の処理 ===
+		// メッセージを進めるシステムのみを実行
+		g.getSystem(&MessageSystem{}).Update(g.ECS)
+
+	case GameStateOver:
+		// === ゲームオーバー時の処理 ===
+		// クリックでリスタート要求フラグを立てる
+		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+			gs.RestartRequested = true
+		}
+	}
+
+	// ティックカウントは状態に関わらず更新
+	gs.TickCount++
+
+	// 最後に、変更された可能性のあるコンポーネントデータを書き戻す
+	GameStateComponentType.Set(g.gameStateEntry, gs)
+
+	// リスタート要求があれば、Terminationの代わりに特別なエラーを返す
+	if gs.RestartRequested {
+		// NewGameを呼び出して自身をリセットする
+		log.Println("Restarting game...")
+		*g = *NewGame(g.GameData, *g.Config)
+		// gs.RestartRequestedをfalseに戻す
+		gs = GameStateComponentType.Get(g.gameStateEntry)
+		gs.RestartRequested = false
 		GameStateComponentType.Set(g.gameStateEntry, gs)
 	}
 
-	gs.TickCount++
-	GameStateComponentType.Set(g.gameStateEntry, gs)
-
-	// 登録された各更新システムを実行
-	for _, system := range g.systems {
-		// DrawSystemインターフェースを実装しているシステムはUpdateロジックを持たない場合があるので、
-		// SystemインターフェースのUpdateメソッドのみを呼び出す。
-		// RenderSystemのようにUpdateを持たないものは、g.systemsには追加されるが、
-		// DrawSystemとしてg.renderSystemsに追加され、DrawメソッドのみがGame.Drawから呼ばれる。
-		// もしSystemインターフェースを実装しつつUpdateが不要な描画専用システムがある場合、
-		// そのUpdateメソッドは空実装にする。
-		// 今回のRenderSystemはSystemインターフェースを実装していないので、このループでは実行されない。
-		// (もしRenderSystemもSystemインターフェースを実装しUpdateを持つならここで呼ばれる)
-		system.Update(g.ECS)
-	}
-
 	return nil
+}
+
+// g.systemsスライスから特定の型のシステムを取得するヘルパーメソッド
+func (g *Game) getSystem(target System) System {
+	for _, s := range g.systems {
+		// 型を比較して一致するシステムを返す
+		if fmt.Sprintf("%T", s) == fmt.Sprintf("%T", target) {
+			return s
+		}
+	}
+	return nil // 見つからなかった場合
 }
 
 // showMessage はメッセージ表示状態に移行します (GameStateComponentを更新)

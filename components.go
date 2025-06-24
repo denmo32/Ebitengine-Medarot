@@ -85,9 +85,10 @@ var GameStateComponentType = donburi.NewComponentType[GameStateComponent]()
 
 // プレイヤーの行動選択UIに関連するコンポーネント (シングルトンまたはUIエンティティ用)
 type PlayerActionSelectComponent struct {
-	ActingMedarot    donburi.Entity // 現在行動選択中のプレイヤーメダロット
-	CurrentTarget    donburi.Entity // 現在選択されている仮ターゲット
-	AvailableActions []PartSlotKey  // 選択可能なパーツスロット
+	// ActingMedarot    donburi.Entity // ← これはもう不要になる
+	CurrentTarget    donburi.Entity
+	AvailableActions []PartSlotKey
+	ActionQueue      []donburi.Entity // ★ 行動選択待ちのメダロットを保持するキューを追加
 }
 
 var PlayerActionSelectComponentType = donburi.NewComponentType[PlayerActionSelectComponent]()
