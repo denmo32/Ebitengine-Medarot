@@ -2,12 +2,12 @@ package main
 
 // Action related helper functions will be moved here
 import (
-	"fmt"
+	//"fmt"
 	"math/rand"
 
 	"github.com/yohamta/donburi"
 	"github.com/yohamta/donburi/ecs"
-	"github.com/yohamta/donburi/filter"
+	//"github.com/yohamta/donburi/filter"
 )
 
 func showGameMessage(ecs *ecs.ECS, msg string, callback func()) {
