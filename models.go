@@ -84,26 +84,27 @@ type Part struct {
 	Propulsion int
 	IsBroken   bool
 	SetID      string
-	Owner      *Medarot
 }
 
 // Medarot はメダロットのデータ構造です。
-type Medarot struct {
-	ID                string
-	Name              string
-	Team              TeamID
-	Medal             *Medal
-	Parts             map[PartSlotKey]*Part // ★型を PartSlotKey に変更
-	IsLeader          bool
-	State             MedarotState
-	Gauge             float64
-	SelectedPartKey   PartSlotKey // ★型を PartSlotKey に変更
-	TargetedMedarot   *Medarot
-	LastActionLog     string
-	IsEvasionDisabled bool
-	IsDefenseDisabled bool
-	DrawIndex         int
-}
+// ECS化に伴い、この構造体はエンティティとコンポーネントに分割されるため、基本的には不要になります。
+// PartsComponent内のPart構造体がOwnerとしてこの型を参照しているため、完全削除は後回し。
+// type Medarot struct {
+// 	ID                string
+// 	Name              string
+// 	Team              TeamID
+// 	Medal             *Medal
+// 	Parts             map[PartSlotKey]*Part
+// 	IsLeader          bool
+// 	State             MedarotState
+// 	Gauge             float64
+// 	SelectedPartKey   PartSlotKey
+// 	TargetedMedarot   *Medarot
+// 	LastActionLog     string
+// 	IsEvasionDisabled bool
+// 	IsDefenseDisabled bool
+// 	DrawIndex         int
+// }
 
 // GameState はゲームの進行状態を定義します。
 type GameState int
@@ -123,22 +124,22 @@ const (
 	Team2
 )
 
-// Game はゲーム全体の状態を保持する構造体です。
-type Game struct {
-	Medarots              []*Medarot
-	GameData              *GameData
-	Config                Config
-	TickCount             int
-	DebugMode             bool
-	State                 GameState
-	PlayerTeam            TeamID
-	actionQueue           []*Medarot
-	message               string
-	postMessageCallback   func()
-	winner                TeamID
-	playerActionTarget    *Medarot
-	restartRequested      bool
-	sortedMedarotsForDraw []*Medarot
-	team1Leader           *Medarot
-	team2Leader           *Medarot
-}
+// 古いGame構造体は削除。ECSベースのGame構造体はgame.goにあります。
+// type Game struct {
+// 	Medarots              []*Medarot
+// 	GameData              *GameData
+// 	Config                Config
+// 	TickCount             int
+// 	DebugMode             bool
+// 	State                 GameState
+// 	PlayerTeam            TeamID
+// 	actionQueue           []*Medarot
+// 	message               string
+// 	postMessageCallback   func()
+// 	winner                TeamID
+// 	playerActionTarget    *Medarot
+// 	restartRequested      bool
+// 	sortedMedarotsForDraw []*Medarot
+// 	team1Leader           *Medarot
+// 	team2Leader           *Medarot
+// }

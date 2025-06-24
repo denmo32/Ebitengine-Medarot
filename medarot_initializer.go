@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+
+	"github.com/yohamta/donburi"
+	//"github.com/yohamta/donburi/features/math"
 )
 
 const PlayersPerTeam = 3
@@ -24,18 +27,25 @@ var defaultLoadouts = []DefaultLoadout{
 	{Head: "H-006", RightArm: "RA-006", LeftArm: "LA-006", Legs: "L-006"},
 }
 
+// findPartByID はパーツIDでパーツを検索し、コピーを返します。
+// ECSではコンポーネントのデータはエンティティごとにユニークであるべきなので、
+// 共有されるマスターデータからコピーを作成します。
 func findPartByID(allParts map[string]*Part, id string) *Part {
 	originalPart, exists := allParts[id]
 	if !exists {
 		return nil
 	}
+	// パーツデータのコピーを作成
 	newPart := *originalPart
 	return &newPart
 }
 
+// findMedalByID はメダルIDでメダルを検索し、コピーを返します。
+// パーツと同様に、メダルデータもエンティティごとにユニークであるべきです。
 func findMedalByID(medals []Medal, id string) *Medal {
 	for i := range medals {
 		if medals[i].ID == id {
+			// メダルデータのコピーを作成
 			m := medals[i]
 			return &m
 		}
@@ -43,93 +53,124 @@ func findMedalByID(medals []Medal, id string) *Medal {
 	return nil
 }
 
-func createMedarotTeam(teamID TeamID, teamBaseSpeed float64, gameData *GameData) []*Medarot {
-	var teamMedarots []*Medarot
+func createMedarotEntity(w donburi.World, teamID TeamID, medarotNumber int, isLeader bool, gameData *GameData, drawIndex int) donburi.Entity {
+	medarotDisplayID := fmt.Sprintf("p%d", medarotNumber)
+	medarotName := fmt.Sprintf("機体 %d", medarotNumber)
 
-	for i := 0; i < PlayersPerTeam; i++ {
-		medarotIDNumber := 0
-		if teamID == Team1 {
-			medarotIDNumber = i + 1
-		} else {
-			medarotIDNumber = PlayersPerTeam + i + 1
+	entity := w.Create(IdentityComponentType, CMedal, PartsComponentType, StatusComponentType, ActionComponentType, RenderComponentType)
+
+	// IdentityComponent
+	IdentityComponentType.SetValue(w.Entry(entity), IdentityComponent{
+		ID:       medarotDisplayID,
+		Name:     medarotName,
+		Team:     teamID,
+		IsLeader: isLeader,
+	})
+
+	// MedalComponent & PartsComponent
+	var selectedMedal *Medal // This Medal is models.Medal
+	var partsConfig DefaultLoadout = defaultLoadouts[rand.Intn(len(defaultLoadouts))]
+
+	if teamID == Team1 && isLeader {
+		metabeeMedal := findMedalByID(gameData.Medals, "M001")
+		if metabeeMedal != nil {
+			selectedMedal = metabeeMedal
 		}
-		medarotDisplayID := fmt.Sprintf("p%d", medarotIDNumber)
-		medarotName := fmt.Sprintf("機体 %d", medarotIDNumber)
-		isLeader := (i == 0)
-
-		var selectedMedal *Medal
-		// ★ 'partsConfig' の未使用エラーを修正
-		var partsConfig DefaultLoadout = defaultLoadouts[rand.Intn(len(defaultLoadouts))]
-		if teamID == Team1 && isLeader {
-			metabeeMedal := findMedalByID(gameData.Medals, "M001")
-			if metabeeMedal != nil {
-				selectedMedal = metabeeMedal
-			}
-			partsConfig = defaultLoadouts[0]
-		} else {
+		partsConfig = defaultLoadouts[0]
+	} else {
+		if len(gameData.Medals) > 0 {
 			medalIndex := rand.Intn(len(gameData.Medals))
 			selectedMedal = &gameData.Medals[medalIndex]
 		}
-
-		if selectedMedal == nil {
-			log.Printf("Warning: No medals loaded. Creating a fallback medal for %s.\n", medarotDisplayID)
-			selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback", SkillShoot: 5, SkillFight: 5}
-		}
-
-		medarot := NewMedarot(medarotDisplayID, medarotName, teamID, selectedMedal, isLeader)
-
-		// ★定数を使用
-		partIDMap := map[PartSlotKey]string{
-			PartSlotHead:     partsConfig.Head,
-			PartSlotRightArm: partsConfig.RightArm,
-			PartSlotLeftArm:  partsConfig.LeftArm,
-			PartSlotLegs:     partsConfig.Legs,
-		}
-
-		for slot, partID := range partIDMap {
-			if p := findPartByID(gameData.AllParts, partID); p != nil {
-				p.Owner = medarot
-				medarot.Parts[slot] = p
-			} else {
-				log.Printf("Warning: Part %s for slot %s not found for %s. Equipping placeholder.\n", partID, slot, medarot.ID)
-				placeholderPart := &Part{ID: "placeholder", PartName: "Missing", Type: PartType(slot), IsBroken: true, MaxArmor: 1, Armor: 1}
-				placeholderPart.Owner = medarot
-				medarot.Parts[slot] = placeholderPart
-			}
-		}
-
-		teamMedarots = append(teamMedarots, medarot)
 	}
-	return teamMedarots
+
+	if selectedMedal == nil {
+		log.Printf("Warning: No suitable medal found. Creating a fallback medal for %s.\n", medarotDisplayID)
+		selectedMedal = &Medal{ID: "M_FALLBACK", Name: "Fallback", SkillShoot: 5, SkillFight: 5}
+	}
+	CMedal.SetValue(w.Entry(entity), MedalComponent{Medal: selectedMedal})
+
+	partsMap := make(map[PartSlotKey]*Part)
+	partIDMap := map[PartSlotKey]string{
+		PartSlotHead:     partsConfig.Head,
+		PartSlotRightArm: partsConfig.RightArm,
+		PartSlotLeftArm:  partsConfig.LeftArm,
+		PartSlotLegs:     partsConfig.Legs,
+	}
+
+	// dummyOwnerMedarotForPart と p.Owner の参照を削除
+	for slot, partID := range partIDMap {
+		if p := findPartByID(gameData.AllParts, partID); p != nil {
+			partsMap[slot] = p
+		} else {
+			log.Printf("Warning: Part %s for slot %s not found for %s. Equipping placeholder.\n", partID, slot, medarotDisplayID)
+			placeholderPart := &Part{ID: "placeholder", PartName: "Missing", Type: PartType(slot), IsBroken: true, MaxArmor: 1, Armor: 1}
+			partsMap[slot] = placeholderPart
+		}
+	}
+	PartsComponentType.SetValue(w.Entry(entity), PartsComponent{Parts: partsMap})
+
+	// StatusComponent
+	StatusComponentType.SetValue(w.Entry(entity), StatusComponent{
+		State:             StateReadyToSelectAction,
+		Gauge:             100.0,
+		IsEvasionDisabled: false,
+		IsDefenseDisabled: false,
+	})
+
+	// ActionComponent
+	ActionComponentType.SetValue(w.Entry(entity), ActionComponent{})
+
+	// RenderComponent
+	RenderComponentType.SetValue(w.Entry(entity), RenderComponent{DrawIndex: drawIndex})
+
+	// AIControlled / PlayerControlled
+	// w.AddComponentではなく、w.Entry(entity).AddComponent を使用する
+	medarotEntry := w.Entry(entity) // Entryを一度取得
+	if teamID == Team1 {
+		medarotEntry.AddComponent(PlayerControlledComponentType)
+	} else {
+		medarotEntry.AddComponent(AIControlledComponentType)
+	}
+
+	logMedarotInitialization(entity, w)
+	return entity
 }
 
-func InitializeAllMedarots(gameData *GameData) []*Medarot {
-	var allMedarots []*Medarot
+func InitializeAllMedarotEntities(w donburi.World, gameData *GameData) {
+	team1Count := 0
+	team2Count := 0
 
-	const team1BaseSpeed = 1.0
-	const team2BaseSpeed = 0.9
+	for i := 0; i < PlayersPerTeam; i++ {
+		medarotIDNumberTeam1 := i + 1
+		isLeaderTeam1 := (i == 0)
+		createMedarotEntity(w, Team1, medarotIDNumberTeam1, isLeaderTeam1, gameData, team1Count)
+		team1Count++
 
-	team1Medarots := createMedarotTeam(Team1, team1BaseSpeed, gameData)
-	allMedarots = append(allMedarots, team1Medarots...)
+		medarotIDNumberTeam2 := PlayersPerTeam + i + 1
+		isLeaderTeam2 := (i == 0)
+		createMedarotEntity(w, Team2, medarotIDNumberTeam2, isLeaderTeam2, gameData, team2Count)
+		team2Count++
+	}
+	log.Printf("Initialized %d medarot entities in total.", team1Count+team2Count)
+}
 
-	team2Medarots := createMedarotTeam(Team2, team2BaseSpeed, gameData)
-	allMedarots = append(allMedarots, team2Medarots...)
+func logMedarotInitialization(entity donburi.Entity, w donburi.World) {
+	entry := w.Entry(entity)
+	identity := IdentityComponentType.Get(entry)
+	medalComp := CMedal.Get(entry) // CMedal を使用
+	partsComp := PartsComponentType.Get(entry)
 
-	log.Printf("Initialized %d medarots in total.", len(allMedarots))
-	for _, m := range allMedarots {
-		teamStr := "Team1"
-		if m.Team == Team2 {
-			teamStr = "Team2"
-		}
-		log.Printf("  - %s (%s), Leader: %t, Medal: %s", m.Name, teamStr, m.IsLeader, m.Medal.Name)
-		for slot, part := range m.Parts {
-			if part != nil {
-				log.Printf("    %s: %s (Armor: %d/%d, Pow: %d)", string(slot), part.PartName, part.Armor, part.MaxArmor, part.Power)
-			} else {
-				log.Printf("    %s: <NONE>", string(slot))
-			}
+	teamStr := "Team1"
+	if identity.Team == Team2 {
+		teamStr = "Team2"
+	}
+	log.Printf("  - EntityID: %d, Name: %s (%s), Leader: %t, Medal: %s", entity.Id(), identity.Name, teamStr, identity.IsLeader, medalComp.Medal.Name)
+	for slot, part := range partsComp.Parts {
+		if part != nil {
+			log.Printf("    %s: %s (Armor: %d/%d, Pow: %d)", string(slot), part.PartName, part.Armor, part.MaxArmor, part.Power)
+		} else {
+			log.Printf("    %s: <NONE>", string(slot))
 		}
 	}
-
-	return allMedarots
 }

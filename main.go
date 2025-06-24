@@ -79,9 +79,11 @@ func main() {
 	if game == nil {
 		log.Fatal("Failed to create new game instance.")
 	}
-	if len(game.Medarots) == 0 {
-		log.Fatal("Game initialized with no Medarots.")
-	}
+	// game.Medarots はECS化により削除されたため、このチェックは不要。
+	// エンティティ数のチェックは NewGame 内で行われる。
+	// if len(game.Medarots) == 0 {
+	// 	log.Fatal("Game initialized with no Medarots.")
+	// }
 
 	// ★★★ [修正] Configからウィンドウサイズを設定 ★★★
 	ebiten.SetWindowSize(config.UI.Screen.Width, config.UI.Screen.Height)
