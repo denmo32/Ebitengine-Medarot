@@ -141,4 +141,5 @@ type Game struct {
 	sortedMedarotsForDraw []*Medarot
 	team1Leader           *Medarot
 	team2Leader           *Medarot
+	ui                    *ebitenui.UI // EbitenUIのUIマネージャー
 }

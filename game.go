@@ -10,10 +10,18 @@ import (
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
+
+	"github.com/ebitenui/ebitenui"
+	"github.com/ebitenui/ebitenui/widget"
 )
 
 // NewGame はゲームを初期化します
 func NewGame(gameData *GameData, config Config) *Game {
+	rootContainer := widget.NewContainer() // EbitenUIのルートコンテナを作成
+	ui := &ebitenui.UI{
+		Container: rootContainer,
+	}
+
 	medarots := InitializeAllMedarots(gameData)
 	if len(medarots) == 0 {
 		log.Fatal("No medarots were initialized. Exiting.")
@@ -30,6 +38,7 @@ func NewGame(gameData *GameData, config Config) *Game {
 		sortedMedarotsForDraw: make([]*Medarot, len(medarots)),
 		team1Leader:           nil,
 		team2Leader:           nil,
+		ui:                    ui, // UIマネージャーをセット
 	}
 	// リーダーをキャッシュ
 	for _, m := range medarots {
@@ -61,37 +70,97 @@ func NewGame(gameData *GameData, config Config) *Game {
 		}
 	}
 	g.sortedMedarotsForDraw = sortedMedarots
+
+	// Initialize and add static UI elements like info panels to the root container
+	infoPanelsWidget := createInfoPanelsUI(g)
+	g.ui.Container.AddChild(infoPanelsWidget) // Add to the main UI tree
+
 	return g
 }
 
 // Update はゲームのメインループです
 func (g *Game) Update() error {
-	if g.State == GameStateOver {
-		if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-			cursorPos := image.Pt(ebiten.CursorPosition())
-			// ★ getResetButtonRect は renderer.go に移動したので、g を渡す
-			if cursorPos.In(getResetButtonRect(g)) {
-				g.restartRequested = true
-			}
-		}
-		if g.restartRequested {
-			newG := NewGame(g.GameData, g.Config)
-			*g = *newG
+	// Handle restart triggered by UI button
+	if g.restartRequested {
+		// When restarting, the old UI is discarded with the old game state.
+		// NewGame() will set up a new UI with new info panels.
+		newG := NewGame(g.GameData, g.Config)
+		*g = *newG
+		// Ensure UI state is correct after restart
+		if g.State == GameStateMessage || g.State == GameStateOver {
+			showUIMessage(g)
+		} else {
+			hideUIMessage(g)
 		}
 		return nil
 	}
+
+	// If game is over, only UI updates (which include reset button) and debug toggle
+	if g.State == GameStateOver {
+		if inpututil.IsKeyJustPressed(ebiten.KeyD) {
+			g.DebugMode = !g.DebugMode
+		}
+		g.ui.Update()
+		return nil
+	}
+
+	// Regular updates
 	if inpututil.IsKeyJustPressed(ebiten.KeyD) {
 		g.DebugMode = !g.DebugMode
 	}
 	g.TickCount++
+	previousState := g.State
+
 	switch g.State {
 	case StatePlaying:
 		g.updatePlaying()
 	case StatePlayerActionSelect:
-		g.updatePlayerActionSelect()
+		g.updatePlayerActionSelect() // This will eventually be UI driven too
 	case GameStateMessage:
-		g.updateMessage()
+		g.updateMessage() // Handles click-to-continue for UI message
 	}
+
+	// Manage visibility of the message window based on state changes
+	if previousState != g.State {
+		if g.State == GameStateMessage || g.State == GameStateOver {
+			// If moving TO a message/over state, ensure any old one is gone, then show new.
+			hideUIMessage(g)
+			showUIMessage(g)
+		} else {
+			// If moving FROM a message/over state to something else, hide it.
+			hideUIMessage(g)
+		}
+	} else if g.State == GameStateMessage || g.State == GameStateOver {
+		// If state hasn't changed but we are in a message state,
+		// it implies the content of the message might need updating (e.g. new log message).
+		// For now, createMessageWindowUI reads g.message directly.
+		// A more robust way would be to explicitly call an update function for the window if its content changes.
+		// However, showUIMessage already removes and re-adds, effectively updating.
+		// This line ensures it's visible if it was hidden for some reason (though current logic shouldn't allow that).
+		// Re-evaluate if this specific `else if` is truly needed after action modal.
+		// showUIMessage(g) // This might cause flicker if called every frame.
+
+		// Manage visibility of the action modal based on state changes
+		if g.State == StatePlayerActionSelect {
+			// If moving TO action select state, show modal.
+			// (hide is implicitly handled if state changes AWAY from ActionSelect by the 'else' below)
+			showUIActionModal(g)
+		} else if previousState == StatePlayerActionSelect && g.State != StatePlayerActionSelect {
+			// If moving FROM action select state, hide modal.
+			hideUIActionModal(g)
+		}
+	} else if g.State == StatePlayerActionSelect {
+		// If state hasn't changed but we are in action select,
+		// the modal might need an update (e.g. target changed).
+		// showUIActionModal removes and re-adds, effectively updating.
+		showUIActionModal(g)
+	}
+
+	// Update all info panels unconditionally for now.
+	// Later, this could be optimized to update only when data changes.
+	updateAllInfoPanels(g)
+
+	g.ui.Update() // EbitenUIのUpdateを呼び出す
 	return nil
 }
 
@@ -99,7 +168,16 @@ func (g *Game) Update() error {
 func (g *Game) showMessage(msg string, callback func()) {
 	g.message = msg
 	g.postMessageCallback = callback
+	previousState := g.State
 	g.State = GameStateMessage
+
+	// If we are transitioning to a message state, ensure the UI reflects this.
+	// hideUIMessage will remove any existing message window (e.g. from a previous message).
+	// showUIMessage will create and add the new one.
+	if previousState != GameStateMessage && previousState != GameStateOver {
+		hideUIMessage(g) // Good practice to hide before showing new, avoids overlap if logic changes
+	}
+	showUIMessage(g)
 }
 
 // updatePlaying はプレイ中のロジックを処理します
@@ -167,83 +245,59 @@ func (g *Game) selectAutomaticTarget(actingMedarot *Medarot) *Medarot {
 
 // tryEnterActionSelect はプレイヤーの行動選択状態に移行できるか試みます
 func (g *Game) tryEnterActionSelect() {
-	if g.State == StatePlaying && len(g.actionQueue) > 0 {
-		// ▼▼▼ この部分を修正 ▼▼▼
+	if g.State == StatePlaying && len(g.actionQueue) > 0 && g.actionQueue[0].Team == g.PlayerTeam {
 		actingMedarot := g.actionQueue[0]
-		g.playerActionTarget = g.selectAutomaticTarget(actingMedarot)
+		// Ensure a default target is selected if applicable (for shooting parts)
+		// This target might be changed by player input later (not implemented yet)
+		if g.playerActionTarget == nil || g.playerActionTarget.State == StateBroken {
+			g.playerActionTarget = g.selectAutomaticTarget(actingMedarot)
+		}
+		// If still no valid target for a shooter, AI might need to pick a different action or wait.
+		// For player, the UI will show "no target" or similar.
+
 		g.State = StatePlayerActionSelect
-		// ▲▲▲ ここまで ▲▲▲
+		// The call to showUIActionModal() is handled by the state change detection in Update()
 	}
 }
 
 // updatePlayerActionSelect はプレイヤーの行動選択を処理します
+// With EbitenUI, button clicks are handled by their respective ClickedHandler.
+// So, this function becomes much simpler or might even be removed if all logic moves to handlers.
+// For now, it can be used to check if the action selection phase should end (e.g., if actionQueue becomes empty unexpectedly).
 func (g *Game) updatePlayerActionSelect() {
-	if len(g.actionQueue) == 0 {
+	if len(g.actionQueue) == 0 || g.actionQueue[0].Team != g.PlayerTeam {
+		// If the queue is empty or the turn has passed to AI somehow, transition out.
 		g.State = StatePlaying
 		g.playerActionTarget = nil
+		hideUIActionModal(g) // Ensure modal is hidden
 		return
 	}
-	if !inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
-		return
-	}
-	currentMedarot := g.actionQueue[0]
-	availableParts := currentMedarot.GetAvailableAttackParts()
-	mx, my := ebiten.CursorPosition()
-	for i, part := range availableParts {
-		btnW := g.Config.UI.ActionModal.ButtonWidth
-		btnH := g.Config.UI.ActionModal.ButtonHeight
-		btnSpacing := g.Config.UI.ActionModal.ButtonSpacing
-		buttonX := g.Config.UI.Screen.Width/2 - int(btnW/2)
-		buttonY := g.Config.UI.Screen.Height/2 - 50 + (int(btnH)+int(btnSpacing))*i
-		buttonRect := image.Rect(buttonX, buttonY, buttonX+int(btnW), buttonY+int(btnH))
-		if (image.Point{X: mx, Y: my}).In(buttonRect) {
-			// ▼▼▼ このチェックを追加 ▼▼▼
-			if g.playerActionTarget == nil || g.playerActionTarget.State == StateBroken {
-				log.Println("Action cancelled: Target is invalid or already broken.")
-				// ここでゲームを StatePlaying に戻すか、メッセージを出すかはお好みで
-				g.State = StatePlaying
-				return
-			}
-			// ▲▲▲ ここまで ▲▲▲
 
-			// ▼▼▼ 先にターゲットを設定する ▼▼▼
-			currentMedarot.TargetedMedarot = g.playerActionTarget
-			if currentMedarot.TargetedMedarot == nil && part.Category == CategoryShoot {
-				// ターゲットがいない場合は何もしないか、フィードバックを出す
-				log.Println("Cannot select shooting part without a target.")
-				// ターゲットをnilに戻しておく（任意だが、安全のため）
-				currentMedarot.TargetedMedarot = nil
-				return
-			}
-			var slotKey PartSlotKey
-			switch part.Type {
-			case PartTypeHead:
-				slotKey = PartSlotHead
-			case PartTypeRArm:
-				slotKey = PartSlotRightArm
-			case PartTypeLArm:
-				slotKey = PartSlotLeftArm
-			}
-			if currentMedarot.SelectAction(slotKey) {
-				g.actionQueue = g.actionQueue[1:]
-			}
-			if len(g.actionQueue) == 0 {
-				g.State = StatePlaying
-				g.playerActionTarget = nil
-			}
-			return
-		}
-	}
+	// Potentially, add logic here for changing targets with keyboard/mouse if not done via UI buttons.
+	// For example, pressing a key to cycle targets.
+	// If target changes, we need to refresh the action modal:
+	// oldTarget := g.playerActionTarget
+	// if newTargetSelected { g.playerActionTarget = newTarget }
+	// if oldTarget != g.playerActionTarget { showUIActionModal(g) }
 }
 
 // updateMessage はメッセージ表示中のクリックを処理します
+// For EbitenUI, the "click to continue" for messages (that don't have a button)
+// needs to be handled slightly differently. The UI window itself won't have a click handler.
+// So, we keep the global mouse click check for this specific case.
+// The reset button on Game Over is handled by its own ClickedHandler.
 func (g *Game) updateMessage() {
-	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
+	// Only process click-to-continue if not in game over (which has a button)
+	// and if there's no specific UI element handling the click (like a dedicated "Next" button).
+	if g.State == GameStateMessage && inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		if g.postMessageCallback != nil {
-			g.postMessageCallback()
+			g.postMessageCallback() // This might change state
 		} else {
+			// Default action if no callback: return to playing
 			g.State = StatePlaying
 		}
+		// After processing the click, the state might change,
+		// so the main Update loop's state management will hide the message window.
 	}
 }
 
@@ -337,15 +391,19 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(g.Config.UI.Colors.Background)
 	drawBattlefield(screen, g)
 	drawMedarotIcons(screen, g)
-	drawInfoPanels(screen, g)
-	if g.State == StatePlayerActionSelect && len(g.actionQueue) > 0 {
-		drawActionModal(screen, g) // g.actionQueue[0] は renderer 側で参照
-	} else if g.State == GameStateMessage || g.State == GameStateOver {
-		drawMessageWindow(screen, g)
-	}
+	// InfoPanels are now handled by EbitenUI.
+	// The old drawInfoPanels call is removed.
+	// Action Modal is now handled by EbitenUI.
+	// The old drawActionModal call is removed.
+	// EbitenUI's Draw method (called later) will handle drawing active UI elements.
+
+	// Message window is now handled by EbitenUI, so drawMessageWindow(screen, g) is removed.
+	// EbitenUI's Draw method (called later) will handle drawing active UI elements like the message window.
+
 	if g.DebugMode {
 		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Tick: %d | State: %v", g.TickCount, g.State), 10, g.Config.UI.Screen.Height-15)
 	}
+	g.ui.Draw(screen) // EbitenUIのDrawを呼び出す
 }
 
 // Layout は画面レイアウトを定義します

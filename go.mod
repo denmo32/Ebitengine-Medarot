@@ -8,11 +8,11 @@ require (
 )
 
 require (
-	github.com/ebitengine/gomobile v0.0.0-20240911145611-4856209ac325 // indirect
+	github.com/ebitengine/gomobile v0.0.0-20250209143333-6071a2a2351c // indirect
 	github.com/ebitengine/hideconsole v1.0.0 // indirect
-	github.com/ebitengine/purego v0.8.0 // indirect
+	github.com/ebitengine/purego v0.8.2 // indirect
 	github.com/jezek/xgb v1.1.1 // indirect
 	golang.org/x/sync v0.15.0 // indirect
-	golang.org/x/sys v0.25.0 // indirect
+	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.26.0 // indirect
 )
